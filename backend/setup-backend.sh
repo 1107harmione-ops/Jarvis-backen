@@ -435,4 +435,44 @@ echo "  3) Screen session - runs in background via 'screen'"
 echo ""
 read -r -p "  Select [1-3] (default=2): " autostart_choice
 autostart_choice=${autostart_choice:-2}
-c
+case "$autostart_choice" in
+    1) BOOT_DIR="$HOME/.termux/boot"; mkdir -p "$BOOT_DIR"
+       cp "$BACKEND_DIR/start.sh" "$BOOT_DIR/start-jarvis.sh"; chmod +x "$BOOT_DIR/start-jarvis.sh"
+       ok "Termux:Boot script installed at $BOOT_DIR/start-jarvis.sh"
+       warn "Install Termux:Boot from F-Droid and reboot." ;;
+    2) ok "Manual start chosen. Run: cd $BACKEND_DIR && bash start.sh" ;;
+    3) if command -v screen &>/dev/null; then
+           screen -dmS jarvis bash -c "cd $BACKEND_DIR && bash start.sh"
+           ok "Started in screen session 'jarvis'"
+       else
+           warn "screen not installed. Falling back to manual start."
+       fi ;;
+esac
+step "14. Setup Complete"
+echo ""
+echo -e "${GREEN}+==================================================+${NC}"
+echo -e "${GREEN}|          JARVIS Backend - Setup Complete            |${NC}"
+echo -e "${GREEN}+==================================================+${NC}"
+echo ""
+echo -e "  ${CYAN}Backend:${NC}  $BACKEND_DIR"
+echo -e "  ${CYAN}Port:${NC}     $PORT"
+echo -e "  ${CYAN}Provider:${NC} ${PROVIDER_NAME:-custom} (${PROVIDER_TYPE:-configured})"
+echo -e "  ${CYAN}Model:${NC}    ${GROQ_CHAT_MODEL:-llama-3.1-8b-instant}"
+echo ""
+echo -e "  ${YELLOW}To start:${NC}"
+echo "    cd $BACKEND_DIR && bash start.sh"
+echo ""
+echo -e "  ${YELLOW}Environment:${NC}"
+echo "    Edit $BACKEND_DIR/.env to change keys/models"
+echo "    Edit $BACKEND_DIR/core/config.py for advanced settings"
+echo ""
+if [ "$PROVIDER_TYPE" = "none" ]; then
+    warn "No API provider configured! Edit $BACKEND_DIR/.env to set your keys."
+    echo ""
+    echo "  Quick config:"
+    echo "    echo \"export GROQ_CHAT_API_KEY='your_key_here'\" >> $BACKEND_DIR/.env"
+    echo "    echo \"export GROQ_CHAT_MODEL='llama-3.1-8b-instant'\" >> $BACKEND_DIR/.env"
+fi
+echo ""
+echo -e "${GREEN}Happy building! - JARVIS Team${NC}"
+echo ""
