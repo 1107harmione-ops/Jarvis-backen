@@ -1,0 +1,88 @@
+:root {
+  --bg: #03050c;
+  --bg-card: #0b0e1a;
+  --bg-input: #111422;
+  --text: #e0e0e0;
+  --text-muted: #888;
+  --gold: #FFD700;
+  --gold-dim: #b8960f;
+  --accent: #FFA500;
+  --border: #1e2235;
+  --radius: 8px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  min-height: 100dvh;
+}
+
+.kb-container { max-width: 960px; margin: 0 auto; padding: 1.5rem 1rem; }
+
+.kb-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
+
+.kb-back { color: var(--gold); text-decoration: none; font-size: 0.9rem; opacity: 0.7; transition: opacity 0.2s; }
+.kb-back:hover { opacity: 1; }
+
+.kb-title { color: var(--gold); font-weight: 400; letter-spacing: 2px; font-size: 1.4rem; text-transform: uppercase; text-shadow: 0 0 20px rgba(255, 215, 0, 0.15); }
+
+.kb-spacer { flex: 1; }
+
+.kb-stats-bar { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
+
+.kb-stat { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.8rem 1.5rem; display: flex; flex-direction: column; align-items: center; min-width: 120px; }
+
+.kb-stat-num { font-size: 1.8rem; color: var(--gold); font-weight: 600; }
+.kb-stat-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-muted); margin-top: 2px; }
+
+.kb-search-section { margin-bottom: 1.5rem; }
+.kb-search-row { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+
+.kb-search-input { flex: 1; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.7rem 1rem; color: var(--text); font-size: 1rem; outline: none; transition: border-color 0.2s; }
+.kb-search-input:focus { border-color: var(--gold); }
+.kb-search-input::placeholder { color: var(--text-muted); }
+
+.kb-btn { background: var(--gold); color: #000; border: none; border-radius: var(--radius); padding: 0.7rem 1.2rem; font-weight: 600; cursor: pointer; transition: opacity 0.2s; white-space: nowrap; }
+.kb-btn:hover { opacity: 0.85; }
+
+.kb-btn-secondary { background: transparent; color: var(--gold); border: 1px solid var(--gold); }
+
+.kb-filter-row { display: flex; align-items: center; gap: 0.5rem; }
+.kb-filter-label { font-size: 0.85rem; color: var(--text-muted); }
+
+.kb-select { background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); padding: 0.4rem 0.7rem; outline: none; cursor: pointer; }
+.kb-select:focus { border-color: var(--gold); }
+
+.kb-results { display: flex; flex-direction: column; gap: 0.75rem; }
+
+.kb-empty { text-align: center; color: var(--text-muted); padding: 3rem 0; font-style: italic; }
+
+.kb-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.2rem; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+.kb-card:hover { border-color: var(--gold-dim); background: #0f1322; }
+
+.kb-card-title { color: var(--gold); font-weight: 500; margin-bottom: 0.3rem; font-size: 1rem; }
+.kb-card-summary { font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.kb-card-meta { display: flex; gap: 1rem; margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted); }
+.kb-card-category { color: var(--accent); }
+
+.kb-modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.75); align-items: center; justify-content: center; z-index: 100; }
+.kb-modal-overlay.active { display: flex; }
+
+.kb-modal { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); width: 90%; max-width: 640px; max-height: 80dvh; display: flex; flex-direction: column; }
+
+.kb-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.2rem; border-bottom: 1px solid var(--border); }
+.kb-modal-header h2 { color: var(--gold); font-weight: 400; font-size: 1.1rem; }
+.kb-modal-close { background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; padding: 0 0.3rem; }
+.kb-modal-close:hover { color: var(--text); }
+
+.kb-modal-body { padding: 1.2rem; overflow-y: auto; line-height: 1.7; font-size: 0.9rem; white-space: pre-wrap; }
+
+@media (max-width: 600px) {
+  .kb-search-row { flex-wrap: wrap; }
+  .kb-btn { flex: 1; }
+  .kb-stats-bar { flex-direction: column; }
+  .kb-stat { min-width: unset; }
+}

@@ -1,1 +1,61 @@
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Jarvis UI</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <canvas id="bgCanvas" style="position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none;"></canvas>
+    <div class="hamburger" id="hamburgerBtn">
+        <span></span><span></span><span></span>
+    </div>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+    <div class="sidebar" id="sidebarPanel">
+        <div class="sidebar-header">
+            <span class="sidebar-title">JARVIS</span>
+            <span class="sidebar-close" id="sidebarClose">&times;</span>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-section-title">LAST WORKS</div>
+            <div class="sidebar-list" id="sidebarLastWorks">
+                <div class="sidebar-empty">No recent tasks yet.</div>
+            </div>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-section-title">SESSIONS</div>
+            <div class="sidebar-list" id="sidebarSessions">
+                <div class="sidebar-empty">No sessions yet.</div>
+            </div>
+        </div>
+    </div>
+    <div class="container" id="mainContainer">
+        <div class="status" id="statusText">SYSTEM IDLE</div>
+        <div class="center" id="voiceTrigger">
+            <div class="rings">
+                <div class="ring ring1"></div>
+                <div class="ring ring2"></div>
+            </div>
+            <div class="orb">
+                <div class="core"></div>
+                <canvas id="particles"></canvas>
+            </div>
+        </div>
+        <div class="hint" id="hintText">TAP THE ORB TO ACTIVATE</div>
+        <div id="chatLog" class="chat-log" style="display: none;">
+            <div id="chatMessages" class="chat-messages"></div>
+            <div class="chat-input-row">
+                <input type="text" id="chatInput" class="chat-input" placeholder="Type a message..." autocomplete="off">
+                <button id="chatSendBtn" class="chat-send-btn">SEND</button>
+            </div>
+        </div>
+        <div id="imageDisplay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); z-index: 100; flex-direction: column; justify-content: center; align-items: center; transition: all 0.5s ease; cursor: pointer;">
+            <img id="generatedImg" src="" style="max-width: 90%; max-height: 80%; border-radius: 12px; border: 2px solid #00ffff; box-shadow: 0 0 30px #00ffff55; transform: scale(0.9); transition: transform 0.3s ease;">
+            <div id="imagePath" style="margin-top: 15px; color: #00ffff; font-family: 'Space Grotesk', monospace; font-size: 14px; text-shadow: 0 0 10px #00ffff;"></div>
+            <div style="margin-top: 10px; color: #fff; font-size: 12px;">TAP TO CLOSE</div>
+        </div>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>

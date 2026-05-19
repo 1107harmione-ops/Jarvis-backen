@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS Knowledge Center</title>
+<link rel="stylesheet" href="/static/knowledge.css">
+</head>
+<body>
+<div class="kb-container">
+  <header class="kb-header">
+    <a href="/" class="kb-back">&larr; Dashboard</a>
+    <h1 class="kb-title">Knowledge Center</h1>
+    <div class="kb-spacer"></div>
+  </header>
+  <section class="kb-stats-bar">
+    <div class="kb-stat"><span class="kb-stat-num" id="stat-entries">0</span><span class="kb-stat-label">Entries</span></div>
+    <div class="kb-stat"><span class="kb-stat-num" id="stat-categories">0</span><span class="kb-stat-label">Categories</span></div>
+  </section>
+  <section class="kb-search-section">
+    <div class="kb-search-row">
+      <input type="text" id="kb-search-input" placeholder="Search knowledge base..." class="kb-search-input">
+      <button id="kb-search-btn" class="kb-btn">Search</button>
+      <button id="kb-random-btn" class="kb-btn kb-btn-secondary">Random</button>
+    </div>
+    <div class="kb-filter-row">
+      <label class="kb-filter-label">Category:</label>
+      <select id="kb-category-filter" class="kb-select">
+        <option value="">All</option>
+      </select>
+    </div>
+  </section>
+  <section class="kb-results" id="kb-results">
+    <div class="kb-empty">Search or browse the knowledge base above.</div>
+  </section>
+  <div class="kb-modal-overlay" id="kb-modal">
+    <div class="kb-modal">
+      <div class="kb-modal-header">
+        <h2 id="kb-modal-title">Entry</h2>
+        <button class="kb-modal-close" id="kb-modal-close">&times;</button>
+      </div>
+      <div class="kb-modal-body" id="kb-modal-body"></div>
+    </div>
+  </div>
+</div>
+<script src="/static/knowledge.js"></script>
+</body>
+</html>
