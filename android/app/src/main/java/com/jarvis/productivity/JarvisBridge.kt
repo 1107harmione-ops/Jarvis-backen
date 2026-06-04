@@ -1,6 +1,7 @@
 package com.jarvis.productivity
 
 import android.app.admin.DevicePolicyManager
+import android.app.ActivityManager
 import android.bluetooth.BluetoothAdapter
 import android.content.ComponentName
 import android.content.ContentValues
@@ -11,6 +12,8 @@ import android.media.AudioManager
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -29,12 +32,16 @@ class JarvisBridge(
 ) {
     private var tts: TextToSpeech? = null
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val nativeSpeechRecognizer = NativeSpeechRecognizer(context, webView)
 
     init {
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 tts?.language = Locale.US
             }
+        }
+        if (nativeSpeechRecognizer.isModelDownloaded()) {
+            nativeSpeechRecognizer.initVosk()
         }
     }
 
@@ -74,29 +81,31 @@ class JarvisBridge(
 
     @android.webkit.JavascriptInterface
     fun openApp(pkg: String) {
-        try {
-            val intent = context.packageManager.getLaunchIntentForPackage(pkg)
-            if (intent != null) {
-                context.startActivity(intent)
-            } else {
-                val storeIntent = Intent(Intent.ACTION_VIEW).apply {
-                    data = Uri.parse("market://details?id=$pkg")
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        Handler(Looper.getMainLooper()).post {
+            try {
+                val intent = context.packageManager.getLaunchIntentForPackage(pkg)
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                } else {
+                    val storeIntent = Intent(Intent.ACTION_VIEW).apply {
+                        data = Uri.parse("market://details?id=$pkg")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(storeIntent)
                 }
-                context.startActivity(storeIntent)
-            }
-        } catch (_: Exception) {}
+            } catch (_: Exception) {}
+        }
     }
 
     @android.webkit.JavascriptInterface
     fun closeApp(pkg: String) {
-        try {
-            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:$pkg")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            context.startActivity(intent)
-        } catch (_: Exception) {}
+        Handler(Looper.getMainLooper()).post {
+            try {
+                val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                am.killBackgroundProcesses(pkg)
+            } catch (_: Exception) {}
+        }
     }
 
     @android.webkit.JavascriptInterface
@@ -327,4 +336,40 @@ class JarvisBridge(
             }.toString()
         } catch (_: Exception) { "{}" }
     }
+
+    @android.webkit.JavascriptInterface
+    fun isBluetoothConnected(): Boolean {
+        return nativeSpeechRecognizer.isBluetoothConnected()
+    }
+
+    @android.webkit.JavascriptInterface
+    fun startNativeListening(useVosk: Boolean) {
+        mainHandler.post {
+            nativeSpeechRecognizer.startNativeListening(useVosk)
+        }
+    }
+
+    @android.webkit.JavascriptInterface
+    fun stopNativeListening() {
+        mainHandler.post {
+            nativeSpeechRecognizer.stopListening()
+        }
+    }
+
+    @android.webkit.JavascriptInterface
+    fun downloadVoskModel(callbackId: String) {
+        nativeSpeechRecognizer.downloadModelIfNeeded { success, message ->
+            if (success) nativeSpeechRecognizer.initVosk()
+            mainHandler.post {
+                try {
+                    webView.evaluateJavascript(
+                        "window.__voskDownloadCallback && window.__voskDownloadCallback($success, '${message.replace("'", "\\'")}')",
+                        null
+                    )
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    private val mainHandler = Handler(Looper.getMainLooper())
 }

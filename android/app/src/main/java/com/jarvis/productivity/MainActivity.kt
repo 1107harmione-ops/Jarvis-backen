@@ -14,8 +14,10 @@ import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.io.File
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
+import java.net.URL
 import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
@@ -40,6 +42,7 @@ class MainActivity : AppCompatActivity() {
         setupWebView()
         requestPermissions()
         trustAllCertificates()
+        downloadVoskModel()
     }
 
     private fun setupWebView() {
@@ -135,6 +138,42 @@ class MainActivity : AppCompatActivity() {
         if (permissions.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, permissions.toTypedArray(), PERMISSION_REQUEST_CODE)
         }
+    }
+
+    private fun downloadVoskModel() {
+        Thread {
+            val voskDir = File(filesDir, "vosk-model")
+            if (voskDir.exists() && voskDir.listFiles()?.isNotEmpty() == true) return@Thread
+            try {
+                val url = URL("https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip")
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 15000
+                conn.readTimeout = 60000
+                conn.connect()
+                val zis = java.util.zip.ZipInputStream(java.io.BufferedInputStream(conn.inputStream))
+                var entry = zis.nextEntry
+                val tempDir = File(cacheDir, "vosk_download")
+                tempDir.mkdirs()
+                while (entry != null) {
+                    if (!entry.isDirectory) {
+                        val file = File(tempDir, entry.name)
+                        file.parentFile?.mkdirs()
+                        java.io.FileOutputStream(file).use { fos -> zis.copyTo(fos) }
+                    }
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                }
+                zis.close()
+                voskDir.deleteRecursively()
+                tempDir.renameTo(voskDir)
+                tempDir.deleteRecursively()
+                runOnUiThread {
+                    webView.evaluateJavascript(
+                        "window.__voskReady && window.__voskReady()", null
+                    )
+                }
+            } catch (_: Exception) {}
+        }.start()
     }
 
     private fun trustAllCertificates() {

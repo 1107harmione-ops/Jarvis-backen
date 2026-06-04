@@ -130,6 +130,12 @@ class TaskAgent(BaseAgent):
         "make a note": ("write_note", True),
         "my location": ("get_location", False),
         "where am i": ("get_location", False),
+        "whatsapp": ("open_app", "whatsapp"),
+        "send whatsapp": ("open_app", "whatsapp"),
+        "message on whatsapp": ("open_app", "whatsapp"),
+        "msg on whatsapp": ("open_app", "whatsapp"),
+        "send a message": ("open_app", "whatsapp"),
+        "send a msg": ("open_app", "whatsapp"),
     }
 
     VALID_FUNCTIONS = ["open_app", "close_app", "play_yt", "open_website", "search", "control_volume",
@@ -142,6 +148,16 @@ class TaskAgent(BaseAgent):
     def run(self, query: str, parameters: dict = None) -> dict:
         parameters = parameters or {}
         q = query.lower().strip()
+
+        # Split compound requests on " and " — process first action, mention second
+        compound_parts = [s.strip() for s in q.split(" and ") if s.strip()]
+        compound_targets = [s.strip() for s in query.split(" and ") if s.strip()]
+        secondary_query = ""
+        if len(compound_parts) > 1:
+            q = compound_parts[0]
+            query = compound_targets[0]
+            secondary_query = compound_targets[1]
+
         matched_fn = None
         matched_target = query
         for kw in sorted(self.TASK_MAP, key=len, reverse=True):
@@ -176,7 +192,12 @@ class TaskAgent(BaseAgent):
                 return self._ok(f"{'Flashlight on' if is_on else 'Flashlight off'}.")
             else:
                 return self._err(f"Can't toggle '{device}' — try wifi or bluetooth.")
-        return self._execute(matched_fn, matched_target, parameters)
+        result = self._execute(matched_fn, matched_target, parameters)
+        if secondary_query and result.get("success"):
+            result["result"] = str(result.get("result", "")) + f" Also noted: {secondary_query}."
+            meta = result.get("metadata", {})
+            meta["secondary"] = secondary_query
+        return result
 
     def _execute(self, fn_name: str, target: str, parameters: dict) -> dict:
         try:

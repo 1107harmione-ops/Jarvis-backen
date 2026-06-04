@@ -49,11 +49,57 @@ function animate() {
 let isListening = false;
 let isSpeaking = false;
 let recognition = null;
+let nativeRecognition = false;
+let btConnected = false;
 const WAKE_WORD = "jarvis";
 let wakeMode = true;
 let sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
 let sessionMsgCount = 0;
 let sessionLastPreview = "";
+
+// Callback for native Android speech recognition results
+window.__nativeSpeechResult = function(json) {
+    try {
+        var data = JSON.parse(json);
+        if (data.type === 'result' && data.text) {
+            var transcript = data.text;
+            console.log("Native transcript:", transcript);
+            if (wakeMode) {
+                var lower = transcript.toLowerCase().trim();
+                var idx = lower.indexOf(WAKE_WORD);
+                if (idx === -1) {
+                    console.log("Wake word not detected, ignoring");
+                    return;
+                }
+                var cmd = transcript.slice(idx + WAKE_WORD.length).trim();
+                if (cmd.startsWith(",") || cmd.startsWith(".") || cmd.startsWith("!")) cmd = cmd.slice(1).trim();
+                if (!cmd) {
+                    updateUI('listening', 'YES BOSS?');
+                    setTimeout(function() { updateUI('', 'WAITING FOR JARVIS...'); }, 2000);
+                    restartNativeListening();
+                    return;
+                }
+                wakeMode = false;
+                sendToJarvis(cmd);
+                setTimeout(function() { wakeMode = true; }, 3000);
+            } else {
+                sendToJarvis(transcript);
+            }
+        } else if (data.type === 'partial' && data.text) {
+            if (statusText) statusText.textContent = 'HEARD: ' + data.text;
+        }
+    } catch(e) {
+        console.error("Native speech parse error:", e);
+    }
+};
+
+window.__voskReady = function() {
+    console.log("Vosk model downloaded and ready");
+};
+
+window.__voskDownloadCallback = function(success, message) {
+    console.log("Vosk download:", success, message);
+};
 
 const STOP_WORDS = ["stop", "pause", "wait", "ruko", "shut up", "be quiet", "enough", "that's enough", "chup", "bas karo", "stop talking", "hold on", "quiet", "silence", "that's it", "ruka"];
 
@@ -66,6 +112,9 @@ function cancelTts() {
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     if (typeof Android !== 'undefined' && Android.stopTts) Android.stopTts();
     isSpeaking = false;
+    if (nativeRecognition && typeof Android !== 'undefined') {
+        Android.stopNativeListening();
+    }
     if (recognition) {
         try { recognition.abort(); } catch(e) { try { recognition.stop(); } catch(e2) {} }
     }
@@ -262,6 +311,19 @@ const PKG_MAP = {
     "play store": "com.android.vending", "instagram": "com.instagram.android", "facebook": "com.facebook.katana",
     "twitter": "com.twitter.android", "linkedin": "com.linkedin.android", "netflix": "com.netflix.mediaclient",
     "prime video": "com.amazon.avod.thirdpartyclient", "notepad": "com.socialnmobile.dictapps.notepad.color.note",
+    "pubg": "com.pubg.imobile", "bgmi": "com.pubg.imobile", "battleground": "com.pubg.imobile",
+    "battlegrounds": "com.pubg.imobile", "pubg mobile": "com.pubg.imobile", "pubg mobile india": "com.pubg.imobile",
+    "bgmi mobile": "com.pubg.imobile", "cod": "com.activision.callofduty.shooter", "call of duty": "com.activision.callofduty.shooter",
+    "free fire": "com.dts.freefireth", "freefire": "com.dts.freefireth",
+    "clash of clans": "com.supercell.clashofclans", "coc": "com.supercell.clashofclans",
+    "minecraft": "com.mojang.minecraftpe", "subway surfers": "com.kiloo.subwaysurf",
+    "temple run": "com.imangi.templerun", "snapchat": "com.snapchat.android",
+    "discord": "com.discord", "reddit": "com.reddit.frontpage", "messenger": "com.facebook.orca",
+    "phonepe": "com.phonepe.app", "gpay": "com.google.android.apps.nbu.paisa.user", "google pay": "com.google.android.apps.nbu.paisa.user",
+    "paytm": "net.one97.paytm", "amazon": "in.amazon.mShop.android.shopping", "flipkart": "com.flipkart.android",
+    "swiggy": "in.swiggy.android", "zomato": "com.application.zomato", "uber": "com.ubercab",
+    "ola": "com.olacabs.customer", "hotstar": "in.startv.hotstar", "prime video": "com.amazon.avod.thirdpartyclient",
+    "jio cinema": "com.jio.media.jiobeats", "sony liv": "com.sonyliv", "zee5": "com.graymatrix.did",
 };
 
 const ANDROID_TASK_MAP = {
@@ -358,25 +420,31 @@ function updateUI(state, text) {
     if (voiceTrigger) voiceTrigger.className = 'center ' + state;
     if (!hintText) return;
     if (state === 'listening') {
-        hintText.textContent = 'LISTENING...';
+        hintText.textContent = text || 'LISTENING...';
     } else if (state === 'processing') {
-        hintText.textContent = 'WORKING...';
+        hintText.textContent = text || 'WORKING...';
     } else {
-        hintText.textContent = isListening ? 'ALWAYS ON | READY' : 'TAP TO ACTIVATE';
+        hintText.textContent = isListening ? (wakeMode ? 'WAITING FOR JARVIS...' : 'ALWAYS ON') : 'TAP THE ORB';
     }
 }
 
 function resetState() {
     isListening = false;
+    if (nativeRecognition && typeof Android !== 'undefined') {
+        Android.stopNativeListening();
+    }
     if (recognition) recognition.stop();
     updateUI('', 'SYSTEM OFFLINE');
 }
 
-function startListening(bypassWake) {
-    if (!recognition) {
-        alert("Speech recognition not supported in this browser. Please use Chrome.");
-        return;
+function restartNativeListening() {
+    if (!isListening || isSpeaking || typeof Android === 'undefined') return;
+    if (nativeRecognition) {
+        Android.startNativeListening(false);
     }
+}
+
+function startListening(bypassWake) {
     isListening = true;
     if (bypassWake) {
         wakeMode = false;
@@ -384,6 +452,23 @@ function startListening(bypassWake) {
         setTimeout(() => { wakeMode = true; }, 5000);
     } else {
         updateUI('listening', 'WAITING FOR JARVIS...');
+    }
+
+    // On Android, use native speech recognition with Bluetooth auto-detect
+    if (typeof Android !== 'undefined') {
+        nativeRecognition = true;
+        try { btConnected = Android.isBluetoothConnected(); } catch(e) { btConnected = false; }
+        console.log("Bluetooth headset:", btConnected);
+        Android.stopNativeListening();
+        Android.startNativeListening(false);
+        return;
+    }
+
+    // Fallback to Web Speech API
+    nativeRecognition = false;
+    if (!recognition) {
+        alert("Speech recognition not supported. Please use Chrome.");
+        return;
     }
     recognition.lang = 'en-US';
     try { recognition.start(); } catch (e) {}
@@ -609,6 +694,9 @@ function animateSolarSystem() {
 animateSolarSystem();
 
 setTimeout(() => {
+    const log = document.getElementById('chatLog');
+    if (log) log.style.display = 'block';
+    startListening();
     if (typeof Android !== 'undefined' && Android.speak) {
         Android.speak("Hello boss");
     } else if (window.speechSynthesis) {
