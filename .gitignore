@@ -24,3 +24,6 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Vosk offline STT model (auto-downloaded on deploy)
+speech/vosk_model/

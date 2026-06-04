@@ -102,7 +102,18 @@ def get_stats():
 @app.route("/training/refresh", methods=["POST"])
 def refresh_training():
     global _training_knowledge, _training_sources
-    _training_knowledge, _training_sources = load_training_data()
+_training_knowledge, _training_sources = load_training_data()
+
+_vosk_ready = False
+try:
+    from speech.vosk_stt import init_vosk, get_model_info
+    _vosk_ready = init_vosk()
+    if _vosk_ready:
+        print(f"[Vosk] STT ready: {get_model_info()['model']}")
+    else:
+        print("[Vosk] Not available (model download will retry on first request)")
+except Exception as e:
+    print(f"[Vosk] Init skipped: {e}")
     return jsonify({"status": "success", "training_entries": len(_training_knowledge), "training_sources": len(_training_sources)})
 
 @app.route("/knowledge/search", methods=["POST"])
@@ -171,6 +182,55 @@ def shutdown_backend():
     os._exit(0)
 
 
+@app.route("/transcribe", methods=["POST"])
+def transcribe_audio():
+    if not _vosk_ready:
+        from speech.vosk_stt import init_vosk
+        if not init_vosk():
+            return jsonify({"error": "Vosk not available", "text": ""})
+    if "audio" not in request.files:
+        return jsonify({"error": "No audio file provided", "text": ""})
+    file = request.files["audio"]
+    audio_bytes = file.read()
+    if not audio_bytes:
+        return jsonify({"error": "Empty audio", "text": ""})
+    try:
+        from speech.vosk_stt import transcribe_wav
+        text = transcribe_wav(audio_bytes)
+        return jsonify({"text": text, "error": ""})
+    except Exception as e:
+        return jsonify({"error": str(e), "text": ""})
+
+
+@app.route("/transcribe/json", methods=["POST"])
+def transcribe_json():
+    data = request.json or {}
+    audio_b64 = data.get("audio", "")
+    if not audio_b64:
+        return jsonify({"error": "No audio data", "text": ""})
+    import base64
+    try:
+        audio_bytes = base64.b64decode(audio_b64)
+    except Exception:
+        return jsonify({"error": "Invalid base64", "text": ""})
+    if not _vosk_ready:
+        from speech.vosk_stt import init_vosk
+        if not init_vosk():
+            return jsonify({"error": "Vosk not available", "text": ""})
+    try:
+        from speech.vosk_stt import transcribe_wav
+        text = transcribe_wav(audio_bytes)
+        return jsonify({"text": text, "error": ""})
+    except Exception as e:
+        return jsonify({"error": str(e), "text": ""})
+
+
+@app.route("/transcribe/status", methods=["GET"])
+def transcribe_status():
+    from speech.vosk_stt import is_available, get_model_info
+    return jsonify({"available": is_available(), "model": get_model_info()})
+
+
 @app.route("/memory/save", methods=["POST"])
 def memory_save():
     data = request.json or {}
@@ -210,5 +270,6 @@ if __name__ == "__main__":
     print(f"  Training: {len(_training_knowledge)} entries")
     kb_stats = _kb.stats()
     print(f"  Knowledge: {kb_stats['total_entries']} entries, {len(kb_stats['entries_by_category'])} categories")
+    print(f"  Vosk STT: {'ONLINE' if _vosk_ready else 'OFFLINE (auto-retry on request)'}")
     print("=" * 55 + "\n")
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
