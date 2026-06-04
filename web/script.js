@@ -334,13 +334,25 @@ const ANDROID_TASK_MAP = {
     "read_notifications": null, "get_realtime_data": null, "get_time": null, "lock_screen": null, "shutdown": null,
     "restart": null, "cancel_shutdown": null, "send_sms": null, "read_sms": null, "get_contacts": null,
     "media_control": "mediaPlay", "share_content": "share", "get_wifi_info": null, "set_wallpaper": null,
-    "get_call_log": null, "get_location": null,
+    "get_call_log": null, "get_location": null, "send_whatsapp": "openUrl", "make_call": "openUrl",
 };
 
 function executeAndroidTask(data) {
     if (typeof Android === 'undefined') return;
-    const task = data.task;
-    const target = data.target;
+
+    // Handle compound execution (multiple tasks chained)
+    if (data.compound_execution && Array.isArray(data.compound_execution)) {
+        console.log("[Android] Compound execution:", data.compound_execution);
+        data.compound_execution.forEach(function(item) {
+            executeSingleAndroidTask(item.task, item.target);
+        });
+        return;
+    }
+
+    executeSingleAndroidTask(data.task, data.target);
+}
+
+function executeSingleAndroidTask(task, target) {
     if (!task || !ANDROID_TASK_MAP[task]) return;
     const bridgeFn = ANDROID_TASK_MAP[task];
     if (!bridgeFn) return;
@@ -371,11 +383,15 @@ function executeAndroidTask(data) {
             else if (Android.mediaPlay) Android.mediaPlay();
         } else if (task === "share_content") {
             if (Android.share) Android.share(target || "");
-        } else if (task === "call_contact") {
+        } else if (task === "call_contact" || task === "make_call") {
             const url = `tel:${encodeURIComponent(target || "")}`;
             if (Android.openUrl) Android.openUrl(url);
         } else if (task === "open_website") {
             if (target && Android.openUrl) Android.openUrl(target);
+        } else if (task === "send_whatsapp") {
+            const msg = encodeURIComponent(target || "");
+            const url = `https://wa.me/?text=${msg}`;
+            if (Android.openUrl) Android.openUrl(url);
         }
     } catch (e) {
         console.error("[Android bridge error]", e);

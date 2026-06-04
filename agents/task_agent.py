@@ -89,6 +89,7 @@ class TaskAgent(BaseAgent):
         "previous track": ("media_control", "previous"),
         "send sms": ("send_sms", True),
         "send message": ("send_sms", True),
+        "send msg": ("send_whatsapp", True),
         "read sms": ("read_sms", False),
         "check sms": ("read_sms", False),
         "inbox": ("read_sms", False),
@@ -123,6 +124,7 @@ class TaskAgent(BaseAgent):
         "read notifications": ("read_notifications", False),
         "messages": ("read_notifications", False),
         "call": ("call_contact", True),
+        "make a call": ("call_contact", True),
         "ring": ("call_contact", True),
         "note": ("write_note", True),
         "remind": ("write_note", True),
@@ -131,11 +133,12 @@ class TaskAgent(BaseAgent):
         "my location": ("get_location", False),
         "where am i": ("get_location", False),
         "whatsapp": ("open_app", "whatsapp"),
-        "send whatsapp": ("open_app", "whatsapp"),
-        "message on whatsapp": ("open_app", "whatsapp"),
-        "msg on whatsapp": ("open_app", "whatsapp"),
-        "send a message": ("open_app", "whatsapp"),
-        "send a msg": ("open_app", "whatsapp"),
+        "send whatsapp": ("send_whatsapp", True),
+        "message on whatsapp": ("send_whatsapp", True),
+        "msg on whatsapp": ("send_whatsapp", True),
+        "send a message": ("send_whatsapp", True),
+        "send a msg": ("send_whatsapp", True),
+        "youtube": ("open_app", "youtube"),
     }
 
     VALID_FUNCTIONS = ["open_app", "close_app", "play_yt", "open_website", "search", "control_volume",
@@ -143,20 +146,26 @@ class TaskAgent(BaseAgent):
         "access_storage", "write_note", "get_battery_status", "get_system_info", "get_news", "call_contact",
         "read_notifications", "get_realtime_data", "get_time", "lock_screen", "shutdown", "restart",
         "cancel_shutdown", "send_sms", "read_sms", "get_contacts", "media_control", "share_content",
-        "get_wifi_info", "set_wallpaper", "get_call_log", "get_location"]
+        "get_wifi_info", "set_wallpaper", "get_call_log", "get_location", "send_whatsapp"]
 
     def run(self, query: str, parameters: dict = None) -> dict:
         parameters = parameters or {}
         q = query.lower().strip()
 
-        # Split compound requests on " and " — process first action, mention second
         compound_parts = [s.strip() for s in q.split(" and ") if s.strip()]
         compound_targets = [s.strip() for s in query.split(" and ") if s.strip()]
-        secondary_query = ""
+
         if len(compound_parts) > 1:
-            q = compound_parts[0]
-            query = compound_targets[0]
-            secondary_query = compound_targets[1]
+            results = []
+            for i in range(len(compound_parts)):
+                r = self._process_single(compound_targets[i], parameters)
+                results.append(r)
+            return self._merge_compound_results(results)
+
+        return self._process_single(query, parameters)
+
+    def _process_single(self, query: str, parameters: dict) -> dict:
+        q = query.lower().strip()
 
         matched_fn = None
         matched_target = query
@@ -192,12 +201,34 @@ class TaskAgent(BaseAgent):
                 return self._ok(f"{'Flashlight on' if is_on else 'Flashlight off'}.")
             else:
                 return self._err(f"Can't toggle '{device}' — try wifi or bluetooth.")
-        result = self._execute(matched_fn, matched_target, parameters)
-        if secondary_query and result.get("success"):
-            result["result"] = str(result.get("result", "")) + f" Also noted: {secondary_query}."
-            meta = result.get("metadata", {})
-            meta["secondary"] = secondary_query
-        return result
+        return self._execute(matched_fn, matched_target, parameters)
+
+    def _merge_compound_results(self, results: list) -> dict:
+        texts = []
+        all_ok = True
+        compound_exec = []
+        for r in results:
+            txt = str(r.get("result", ""))
+            if txt:
+                texts.append(txt)
+            if not r.get("success"):
+                all_ok = False
+            meta = r.get("metadata", {})
+            if meta.get("task"):
+                compound_exec.append({
+                    "task": meta["task"],
+                    "target": meta.get("target", "")
+                })
+        combined_text = ". ".join(texts) if texts else "Actions completed."
+        return {
+            "result": combined_text,
+            "success": all_ok,
+            "metadata": {
+                "compound_execution": compound_exec,
+                "tasks": [m.get("task") for m in compound_exec],
+                "targets": [m.get("target") for m in compound_exec],
+            }
+        }
 
     def _execute(self, fn_name: str, target: str, parameters: dict) -> dict:
         try:

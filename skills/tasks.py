@@ -154,6 +154,14 @@ def call_contact(n: str):
     return f"Calling {n}."
 
 
+def make_call(n: str):
+    return f"Calling {n}."
+
+
+def send_whatsapp(msg: str):
+    return f"Sending WhatsApp message: {msg}"
+
+
 def open_website(url: str):
     return f"Opening {url}."
 

@@ -53,7 +53,7 @@ def chat_process():
         metadata = result.get("metadata", {})
         time_ms = result.get("time_ms", 0)
         print(f"JARVIS (Render | {agent_used} | {time_ms}ms): {str(response)[:100]}")
-        return jsonify({"reply": str(response), "agent": agent_used, "image_url": metadata.get("image_url"), "filepath": metadata.get("filepath"), "sources": metadata.get("sources"), "execution_output": metadata.get("execution_output"), "task": metadata.get("task"), "target": metadata.get("target"), "time_ms": time_ms, "training_entries": len(_training_knowledge), "training_sources": len(_training_sources), "status": "success" if result.get("success", True) else "error"})
+        return jsonify({"reply": str(response), "agent": agent_used, "image_url": metadata.get("image_url"), "filepath": metadata.get("filepath"), "sources": metadata.get("sources"), "execution_output": metadata.get("execution_output"), "task": metadata.get("task"), "target": metadata.get("target"), "compound_execution": metadata.get("compound_execution"), "time_ms": time_ms, "training_entries": len(_training_knowledge), "training_sources": len(_training_sources), "status": "success" if result.get("success", True) else "error"})
     except Exception as e:
         print(f"Render Chat Error: {e}")
         return jsonify({"error": str(e), "reply": "I encountered a neural link error."})
