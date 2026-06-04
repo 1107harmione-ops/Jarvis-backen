@@ -356,7 +356,8 @@ const ANDROID_TASK_MAP = {
     "read_notifications": null, "get_realtime_data": null, "get_time": null, "lock_screen": null, "shutdown": null,
     "restart": null, "cancel_shutdown": null, "send_sms": null, "read_sms": null, "get_contacts": null,
     "media_control": "mediaPlay", "share_content": "share", "get_wifi_info": null, "set_wallpaper": null,
-    "get_call_log": null, "get_location": null, "send_whatsapp": "openUrl", "make_call": "openUrl",
+    "get_call_log": null, "get_location": null, "send_whatsapp": "openUrl", "make_call": "callByName",
+    "call_contact": "callByName",
 };
 
 function executeAndroidTask(data) {
@@ -406,8 +407,17 @@ function executeSingleAndroidTask(task, target) {
         } else if (task === "share_content") {
             if (Android.share) Android.share(target || "");
         } else if (task === "call_contact" || task === "make_call") {
-            const url = `tel:${encodeURIComponent(target || "")}`;
-            if (Android.openUrl) Android.openUrl(url);
+            var name = (target || "").trim();
+            if (!name) return;
+            // Try contact-aware dialer (needs APK bridge: Android.callByName)
+            if (Android.callByName) {
+                console.log("[Android] callByName: " + name);
+                Android.callByName(name);
+            } else {
+                // Fallback: open dialer with name as search
+                var url = "tel:" + encodeURIComponent(name);
+                if (Android.openUrl) Android.openUrl(url);
+            }
         } else if (task === "open_website") {
             if (target && Android.openUrl) Android.openUrl(target);
         } else if (task === "send_whatsapp") {

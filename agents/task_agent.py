@@ -123,9 +123,15 @@ class TaskAgent(BaseAgent):
         "check notifications": ("read_notifications", False),
         "read notifications": ("read_notifications", False),
         "messages": ("read_notifications", False),
-        "call": ("call_contact", True),
+        "making call": ("call_contact", True),
+        "making a call": ("call_contact", True),
         "make a call": ("call_contact", True),
+        "make call": ("call_contact", True),
+        "calling": ("call_contact", True),
+        "call to": ("call_contact", True),
+        "call ": ("call_contact", True),
         "ring": ("call_contact", True),
+        "phone": ("call_contact", True),
         "note": ("write_note", True),
         "remind": ("write_note", True),
         "write note": ("write_note", True),
@@ -186,6 +192,8 @@ class TaskAgent(BaseAgent):
                 system="Return JSON with keys: function and target. Functions: open_app, close_app, play_yt, search, take_shot, get_time, lock_screen, shutdown, restart, write_note, get_battery_status, get_system_info, get_news, control_volume, control_brightness, toggle_wifi, toggle_bluetooth, open_website, open_gallery, access_storage, take_photo, call_contact, read_notifications, get_realtime_data, send_sms, read_sms, get_contacts, get_call_log, media_control, share_content, get_wifi_info, set_wallpaper, get_location. target: string or null")
             matched_fn = parsed.get("function", "get_time")
             matched_target = parsed.get("target") or query
+        if matched_fn == "call_contact":
+            matched_target = matched_target.removeprefix("to ").removeprefix("to the ").strip()
         if matched_fn == "_toggle_dispatch":
             is_on = any(kw in q for kw in ["turn on", "switch on"])
             device = (matched_target or "").lower().strip()
