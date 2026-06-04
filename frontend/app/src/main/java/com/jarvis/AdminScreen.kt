@@ -150,14 +150,14 @@ fun AdminScreen() {
         ) { padding ->
             Box(Modifier.padding(padding).fillMaxSize()) {
                 when (selectedTab) {
-                    is AdminTab.Files -> AdminFilesTab(scope)
-                    is AdminTab.Config -> AdminConfigTab(scope)
-                    is AdminTab.ApiKeys -> AdminApiKeysTab(scope)
-                    is AdminTab.Providers -> AdminProvidersTab(scope)
-                    is AdminTab.Sessions -> AdminSessionsTab(scope)
-                    is AdminTab.Database -> AdminDatabaseTab(scope)
-                    is AdminTab.System -> AdminSystemTab(scope)
-                    is AdminTab.Audit -> AdminAuditTab(scope)
+                    AdminTab.Files -> AdminFilesTab(scope)
+                    AdminTab.Config -> AdminConfigTab(scope)
+                    AdminTab.ApiKeys -> AdminApiKeysTab(scope)
+                    AdminTab.Providers -> AdminProvidersTab(scope)
+                    AdminTab.Sessions -> AdminSessionsTab(scope)
+                    AdminTab.Database -> AdminDatabaseTab(scope)
+                    AdminTab.System -> AdminSystemTab(scope)
+                    AdminTab.Audit -> AdminAuditTab(scope)
                 }
             }
         }
@@ -166,6 +166,7 @@ fun AdminScreen() {
 
 @Composable
 fun AdminFilesTab(scope: kotlinx.coroutines.CoroutineScope) {
+    val ctx = LocalContext.current
     var currentPath by remember { mutableStateOf("") }
     var entries by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var fileContent by remember { mutableStateOf<String?>(null) }
@@ -208,10 +209,10 @@ fun AdminFilesTab(scope: kotlinx.coroutines.CoroutineScope) {
                     editingFile?.let { path ->
                         scope.launch {
                             adminClient.writeFile(path, editorText).onSuccess {
-                                Toast.makeText(LocalContext.current, "Saved", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show()
                                 fileContent = null; editingFile = null
                             }.onFailure {
-                                Toast.makeText(LocalContext.current, "Save failed: ${it.message}", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(ctx, "Save failed: ${it.message}", Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
@@ -400,7 +401,7 @@ fun AdminSessionsTab(scope: kotlinx.coroutines.CoroutineScope) {
         LazyColumn(Modifier.fillMaxSize().padding(8.dp)) {
             items(sessions) { s ->
                 val sid = s["id"] as? String ?: ""
-                Card(Modifier.fillMaxWidth().padding(vertical = 2.dp), onClick = {
+                Card(onClick = {
                     if (expandedId == sid) { expandedId = null } else {
                         expandedId = sid
                         scope.launch {
@@ -413,17 +414,17 @@ fun AdminSessionsTab(scope: kotlinx.coroutines.CoroutineScope) {
                             }
                         }
                     }
-                }) {
+                }, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                     Column(Modifier.padding(8.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("${s["message_count"] ?: "0"} msgs", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(s["updated_at"]?.take(10) ?: "", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text((s["updated_at"] as? String)?.take(10) ?: "", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Text(s["last_preview"]?.take(80) ?: "", fontSize = 12.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
+                        Text((s["last_preview"] as? String)?.take(80) ?: "", fontSize = 12.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
                         if (expandedId == sid) {
                             Divider(Modifier.padding(vertical = 4.dp))
                             messages.forEach { m ->
-                                Text("[${m["role"]}] ${m["content"]?.take(100)}", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = if (m["role"] == "user") Color(0xFF90CAF9) else MaterialTheme.colorScheme.primary)
+                                Text("[${m["role"]}] ${(m["content"] as? String)?.take(100)}", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = if (m["role"] == "user") Color(0xFF90CAF9) else MaterialTheme.colorScheme.primary)
                             }
                             Spacer(Modifier.height(4.dp))
                             OutlinedButton(onClick = {
@@ -443,6 +444,7 @@ fun AdminSessionsTab(scope: kotlinx.coroutines.CoroutineScope) {
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun AdminDatabaseTab(scope: kotlinx.coroutines.CoroutineScope) {
     var result by remember { mutableStateOf("Select a collection") }
     var selectedCol by remember { mutableStateOf("queries") }

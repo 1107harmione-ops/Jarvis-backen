@@ -41,6 +41,7 @@ import java.util.*
 
 class MainActivity : ComponentActivity() {
     private var wsClient: WebSocketClient? = null
+    private val adminClient = AdminClient()
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
