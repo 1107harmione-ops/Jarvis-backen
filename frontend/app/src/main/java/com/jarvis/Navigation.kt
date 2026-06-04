@@ -23,6 +23,7 @@ enum class Screen(
     SKILLS("Skills", Icons.Filled.Extension, Icons.Outlined.Extension),
     SETTINGS("Settings", Icons.Filled.Settings, Icons.Outlined.Settings),
     DASHBOARD("Dashboard", Icons.Filled.Dashboard, Icons.Outlined.Dashboard),
+    ADMIN("Admin", Icons.Filled.Security, Icons.Outlined.Security),
 }
 
 object AppState {
@@ -33,13 +34,15 @@ object AppState {
 @Composable
 fun JarvisBottomNav(
     currentScreen: Screen,
-    onScreenSelected: (Screen) -> Unit
+    onScreenSelected: (Screen) -> Unit,
+    showAdmin: Boolean = false
 ) {
+    val entries = if (showAdmin) Screen.entries else Screen.entries.filter { it != Screen.ADMIN }
     NavigationBar(
         tonalElevation = 8.dp,
         containerColor = MaterialTheme.colorScheme.surface
     ) {
-        Screen.entries.forEach { screen ->
+        entries.forEach { screen ->
             NavigationBarItem(
                 icon = {
                     Icon(
@@ -67,7 +70,8 @@ fun AnimatedScreen(
     memory: @Composable () -> Unit,
     skills: @Composable () -> Unit,
     settings: @Composable () -> Unit,
-    dashboard: @Composable () -> Unit
+    dashboard: @Composable () -> Unit,
+    admin: @Composable () -> Unit = {}
 ) {
     AnimatedContent(
         targetState = currentScreen,
@@ -83,6 +87,7 @@ fun AnimatedScreen(
             Screen.SKILLS -> skills()
             Screen.SETTINGS -> settings()
             Screen.DASHBOARD -> dashboard()
+            Screen.ADMIN -> admin()
         }
     }
 }

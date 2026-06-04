@@ -55,9 +55,62 @@ class MainActivity : ComponentActivity() {
         if (result.resultCode == RESULT_OK) {
             val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
             if (!matches.isNullOrEmpty()) {
-                wsClient?.sendText(matches[0])
+                val text = matches[0]
+                if (handleAdminVoice(text)) return@registerForActivityResult
+                wsClient?.sendText(text)
             }
         }
+    }
+
+    private fun handleAdminVoice(text: String): Boolean {
+        val lower = text.lowercase().trim()
+
+        // Exit admin mode
+        if (lower.contains("exit admin") || lower.contains("close admin") || lower.contains("logout admin") || lower.contains("admin off")) {
+            if (ChatState.adminMode) {
+                ChatState.adminMode = false
+                ChatState.activeTab = Screen.CHAT
+                adminClient.logoutBlocking()
+                Toast.makeText(this, "Admin mode off", Toast.LENGTH_SHORT).show()
+            }
+            return true
+        }
+
+        // If pending password auth
+        if (ChatState.pendingAdminAuth) {
+            ChatState.pendingAdminAuth = false
+            val result = adminClient.authBlocking(text)
+            result.onSuccess {
+                ChatState.adminMode = true
+                ChatState.activeTab = Screen.ADMIN
+                Toast.makeText(this, "Admin access granted", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(this, "Access denied: ${it.message}", Toast.LENGTH_SHORT).show()
+            }
+            return true
+        }
+
+        // Admin mode voice commands
+        if (ChatState.adminMode) {
+            val tab = AdminTab.fromVoice(lower)
+            if (tab != null) {
+                ChatState.adminTabIndex = AdminTab.entries.indexOf(tab)
+                Toast.makeText(this, "Admin: ${tab.title}", Toast.LENGTH_SHORT).show()
+                return true
+            }
+            // Pass through to chat if not an admin command
+            return false
+        }
+
+        // Trigger admin login
+        if ((lower.contains("admin") && (lower.contains("access") || lower.contains("mode") || lower.contains("panel") || lower.contains("open"))) ||
+            lower.startsWith("admin access")) {
+            ChatState.pendingAdminAuth = true
+            Toast.makeText(this, "Say the admin password to continue", Toast.LENGTH_SHORT).show()
+            return true
+        }
+
+        return false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -125,8 +178,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun JarvisApp() {
     val activeTab = ChatState.activeTab
+    val admin = ChatState.adminMode
     Scaffold(
-        bottomBar = { JarvisBottomNav(activeTab) { ChatState.activeTab = it } }
+        bottomBar = { JarvisBottomNav(activeTab, { ChatState.activeTab = it }, showAdmin = admin) }
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             AnimatedScreen(
@@ -135,7 +189,8 @@ fun JarvisApp() {
                 memory = { MemoryScreen() },
                 skills = { SkillsScreen() },
                 settings = { AppSettingsScreen() },
-                dashboard = { DashboardScreen() }
+                dashboard = { DashboardScreen() },
+                admin = { AdminScreen() }
             )
         }
     }

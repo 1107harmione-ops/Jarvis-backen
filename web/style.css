@@ -251,6 +251,30 @@ canvas {
 .chat-log::-webkit-scrollbar-track { background: transparent; }
 .chat-log::-webkit-scrollbar-thumb { background: rgba(255, 165, 0, 0.3); border-radius: 3px; }
 
+.admin-badge {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    padding: 4px 10px;
+    background: rgba(255, 0, 0, 0.15);
+    border: 1px solid rgba(255, 0, 0, 0.4);
+    border-radius: 4px;
+    color: #ff4444;
+    font-family: monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    z-index: 60;
+    box-shadow: 0 0 12px rgba(255, 0, 0, 0.2);
+    pointer-events: none;
+    animation: pulseBadge 2s ease-in-out infinite;
+}
+
+@keyframes pulseBadge {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
+
 .hamburger {
     position: fixed;
     top: 16px;

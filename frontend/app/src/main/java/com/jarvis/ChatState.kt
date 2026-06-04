@@ -45,6 +45,22 @@ object ChatState {
         get() = _activeTab.value
         set(v) { _activeTab.value = v }
 
+    // Admin mode state
+    private val _adminMode = mutableStateOf(false)
+    var adminMode: Boolean
+        get() = _adminMode.value
+        set(v) { _adminMode.value = v }
+
+    private val _pendingAdminAuth = mutableStateOf(false)
+    var pendingAdminAuth: Boolean
+        get() = _pendingAdminAuth.value
+        set(v) { _pendingAdminAuth.value = v }
+
+    private val _adminTabIndex = mutableStateOf(0)
+    var adminTabIndex: Int
+        get() = _adminTabIndex.value
+        set(v) { _adminTabIndex.value = v }
+
     private const val MAX_LOG = 200
     private const val MAX_MSG = 200
 

@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Jarvis UI</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body>
     <canvas id="bgCanvas" style="position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none;"></canvas>
+    <div class="admin-badge" id="adminBadge" style="display:none;">🛡 ADMIN</div>
     <div class="hamburger" id="hamburgerBtn">
         <span></span><span></span><span></span>
     </div>
@@ -57,5 +59,6 @@
         </div>
     </div>
     <script src="/static/script.js"></script>
+    <script src="/static/admin.js"></script>
 </body>
 </html>

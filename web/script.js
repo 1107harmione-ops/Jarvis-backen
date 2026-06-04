@@ -62,6 +62,7 @@ window.__nativeSpeechResult = function(json) {
         if (data.type === 'result' && data.text) {
             var transcript = data.text;
             console.log("Native transcript:", transcript);
+            if (routeAdminVoice(transcript)) return;
             sendToJarvis(transcript);
         } else if (data.type === 'partial' && data.text) {
             if (statusText) statusText.textContent = 'HEARD: ' + data.text;
@@ -123,6 +124,7 @@ if (SpeechRecognition) {
         }
         console.log("Transcript:", transcript);
         if (!transcript) return;
+        if (routeAdminVoice(transcript)) return;
         sendToJarvis(transcript);
     };
     recognition.onerror = function(event) {
@@ -488,6 +490,32 @@ function startListening() {
     }
 }
 
+// ─── Admin Voice Routing ────────────────────────────
+function routeAdminVoice(text) {
+    if (typeof isAdminTrigger === 'undefined') return false;
+    if (adminWaitingForPassword) {
+        submitAdminPassword(text);
+        return true;
+    }
+    if (isAdminTrigger(text)) {
+        enterAdminMode();
+        return true;
+    }
+    if (adminMode && isAdminLogoutTrigger(text)) {
+        adminApi('/admin/logout', { method: 'POST' });
+        adminMode = false;
+        adminToken = null;
+        closeAdminPanel();
+        appendChat('assistant', '🔒 Admin session closed.');
+        speak('Admin session closed.');
+        return true;
+    }
+    if (adminMode && handleAdminVoiceCommand(text)) {
+        return true;
+    }
+    return false;
+}
+
 voiceTrigger.addEventListener('click', function() { startListening(); });
 
 const chatInput = document.getElementById('chatInput');
@@ -497,6 +525,7 @@ function sendTextMessage() {
     const text = chatInput.value.trim();
     if (!text) return;
     chatInput.value = '';
+    if (routeAdminVoice(text)) return;
     sendToJarvis(text);
 }
 

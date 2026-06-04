@@ -22,6 +22,12 @@ _kb = DataCenter()
 _skills = SkillLibrary()
 _training_knowledge, _training_sources = load_training_data()
 
+from admin.routes import admin_bp, init_admin
+from admin.auth import cleanup_tokens
+init_admin(memory_instance=_memory, kb_instance=_kb)
+app.register_blueprint(admin_bp)
+cleanup_tokens()
+
 @app.after_request
 def add_cors(resp):
     resp.headers["Access-Control-Allow-Origin"] = "*"
