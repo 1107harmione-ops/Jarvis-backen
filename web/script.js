@@ -51,8 +51,6 @@ let isSpeaking = false;
 let recognition = null;
 let nativeRecognition = false;
 let btConnected = false;
-const WAKE_WORD = "jarvis";
-let wakeMode = true;
 let sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
 let sessionMsgCount = 0;
 let sessionLastPreview = "";
@@ -64,30 +62,7 @@ window.__nativeSpeechResult = function(json) {
         if (data.type === 'result' && data.text) {
             var transcript = data.text;
             console.log("Native transcript:", transcript);
-            if (wakeMode) {
-                var lower = transcript.toLowerCase().trim();
-                var idx = lower.indexOf(WAKE_WORD);
-                if (idx === -1) {
-                    console.log("Wake word not detected, ignoring");
-                    resumeListening(100);
-                    return;
-                }
-                var cmd = transcript.slice(idx + WAKE_WORD.length).trim();
-                if (cmd.startsWith(",") || cmd.startsWith(".") || cmd.startsWith("!")) cmd = cmd.slice(1).trim();
-                if (!cmd) {
-                    updateUI('listening', 'YES BOSS?');
-                    setTimeout(function() {
-                        updateUI('', 'WAITING FOR JARVIS...');
-                        if (isListening) resumeListening(100);
-                    }, 2000);
-                    return;
-                }
-                wakeMode = false;
-                sendToJarvis(cmd);
-                setTimeout(function() { wakeMode = true; }, 3000);
-            } else {
-                sendToJarvis(transcript);
-            }
+            sendToJarvis(transcript);
         } else if (data.type === 'partial' && data.text) {
             if (statusText) statusText.textContent = 'HEARD: ' + data.text;
         }
@@ -131,7 +106,7 @@ if (SpeechRecognition) {
     recognition.lang = 'en-US';
     recognition.onstart = function() {
         console.log("Web Speech started");
-        updateUI('listening', wakeMode ? 'WAITING FOR JARVIS...' : 'LISTENING...');
+        updateUI('listening', 'LISTENING...');
     };
     recognition.onresult = function(event) {
         var transcript = '';
@@ -148,26 +123,7 @@ if (SpeechRecognition) {
         }
         console.log("Transcript:", transcript);
         if (!transcript) return;
-        if (wakeMode) {
-            var lower = transcript.toLowerCase().trim();
-            var idx = lower.indexOf(WAKE_WORD);
-            if (idx === -1) {
-                console.log("Wake word not detected, ignoring");
-                return;
-            }
-            var cmd = transcript.slice(idx + WAKE_WORD.length).trim();
-            if (cmd.startsWith(",") || cmd.startsWith(".") || cmd.startsWith("!")) cmd = cmd.slice(1).trim();
-            if (!cmd) {
-                updateUI('listening', 'YES BOSS?');
-                setTimeout(function() { if (isListening) updateUI('', 'WAITING FOR JARVIS...'); }, 2000);
-                return;
-            }
-            wakeMode = false;
-            sendToJarvis(cmd);
-            setTimeout(function() { wakeMode = true; }, 3000);
-        } else {
-            sendToJarvis(transcript);
-        }
+        sendToJarvis(transcript);
     };
     recognition.onerror = function(event) {
         console.error("Speech Error:", event.error);
@@ -472,7 +428,7 @@ function updateUI(state, text) {
     } else if (state === 'processing') {
         hintText.textContent = text || 'WORKING...';
     } else {
-        hintText.textContent = isListening ? (wakeMode ? 'WAITING FOR JARVIS...' : 'ALWAYS ON') : 'TAP THE ORB';
+        hintText.textContent = isListening ? 'ALWAYS ON' : 'TAP THE ORB';
     }
 }
 
@@ -508,15 +464,9 @@ function restartNativeListening() {
     }
 }
 
-function startListening(bypassWake) {
+function startListening() {
     isListening = true;
-    if (bypassWake) {
-        wakeMode = false;
-        updateUI('listening', 'LISTENING...');
-        setTimeout(function() { wakeMode = true; }, 5000);
-    } else {
-        updateUI('listening', 'WAITING FOR JARVIS...');
-    }
+    updateUI('listening', 'LISTENING...');
 
     if (typeof Android !== 'undefined') {
         nativeRecognition = true;
@@ -538,7 +488,7 @@ function startListening(bypassWake) {
     }
 }
 
-voiceTrigger.addEventListener('click', function() { startListening(true); });
+voiceTrigger.addEventListener('click', function() { startListening(); });
 
 const chatInput = document.getElementById('chatInput');
 const chatSendBtn = document.getElementById('chatSendBtn');

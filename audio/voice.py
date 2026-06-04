@@ -83,14 +83,6 @@ def listen_once(timeout: int = 30, phrase_time_limit: int = 30, language_list: O
     else:
         return input("Command: ").strip()
 
-def listen_for_wakeup(wake_word: str = "jarvis", timeout: int = None) -> tuple:
-    text = listen_once(timeout=timeout if timeout else 5, phrase_time_limit=10, language_list=["en-US"])
-    if text and wake_word.lower() in text.lower():
-        lower = text.lower()
-        idx = lower.find(wake_word.lower())
-        return True, text[idx + len(wake_word):].strip()
-    return False, ""
-
 def listen_for_command(timeout: int = 30, phrase_time_limit: int = 30) -> str:
     return listen_once(timeout=timeout, phrase_time_limit=int(phrase_time_limit))
 
