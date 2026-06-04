@@ -127,14 +127,18 @@ def _llm_classify(query: str) -> dict:
         pass
     return {}
 
-def _chat_response(query: str, knowledge_context: str = "") -> str:
+def _chat_response(query: str, knowledge_context: str = "", session_id: str = "") -> str:
     from core.brain import ask_llm
     enriched_query = query
     if knowledge_context:
         enriched_query = f"[Knowledge Context]\n{knowledge_context}\n\n[User Query]\n{query}"
     response = ask_llm([{"role": "user", "content": enriched_query}])
-    _mem.add("user", query)
-    _mem.add("assistant", response)
+    if session_id:
+        _mem.add_with_session("user", query, session_id)
+        _mem.add_with_session("assistant", response, session_id)
+    else:
+        _mem.add("user", query)
+        _mem.add("assistant", response)
     return response
 
 class Orchestrator:
@@ -142,7 +146,7 @@ class Orchestrator:
         self.use_llm_classify = use_llm_classify
         self._last_query = ""
 
-    def run(self, query: str, context: dict = None) -> dict:
+    def run(self, query: str, context: dict = None, session_id: str = "") -> dict:
         if not query or not query.strip():
             return self._make_response("I didn't catch that. Please repeat.", agent="orchestrator", success=False)
         start = time.time()
@@ -162,13 +166,13 @@ class Orchestrator:
             parameters["knowledge_context"] = knowledge_context
         print(f"[Orchestrator] '{query[:60]}' -> agent={primary}")
         if primary == "chat":
-            response_text = _chat_response(query, knowledge_context)
+            response_text = _chat_response(query, knowledge_context, session_id)
             metadata = {}
             success = True
         else:
             agent = _get_agent(primary)
             if not agent:
-                response_text = _chat_response(query, knowledge_context)
+                response_text = _chat_response(query, knowledge_context, session_id)
                 metadata = {}
                 success = True
                 primary = "chat"
@@ -193,8 +197,12 @@ class Orchestrator:
                     except Exception:
                         pass
         if response_text:
-            _mem.add("user", query)
-            _mem.add("assistant", response_text[:500])
+            if session_id:
+                _mem.add_with_session("user", query, session_id)
+                _mem.add_with_session("assistant", response_text[:500], session_id)
+            else:
+                _mem.add("user", query)
+                _mem.add("assistant", response_text[:500])
         _skill_lib.maybe_learn(query, response_text, primary, success, metadata)
         elapsed_ms = int((time.time() - start) * 1000)
         self._last_query = query

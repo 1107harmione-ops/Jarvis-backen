@@ -49,6 +49,11 @@ function animate() {
 let isListening = false;
 let isSpeaking = false;
 let recognition = null;
+const WAKE_WORD = "jarvis";
+let wakeMode = true;
+let sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+let sessionMsgCount = 0;
+let sessionLastPreview = "";
 
 const STOP_WORDS = ["stop", "pause", "wait", "ruko", "shut up", "be quiet", "enough", "that's enough", "chup", "bas karo", "stop talking", "hold on", "quiet", "silence", "that's it", "ruka"];
 
@@ -75,7 +80,26 @@ if (SpeechRecognition) {
     recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         console.log("Transcript:", transcript);
-        sendToJarvis(transcript);
+        if (wakeMode) {
+            const lower = transcript.toLowerCase().trim();
+            const idx = lower.indexOf(WAKE_WORD);
+            if (idx === -1) {
+                console.log("Wake word not detected, ignoring");
+                return;
+            }
+            let cmd = transcript.slice(idx + WAKE_WORD.length).trim();
+            if (cmd.startsWith(",") || cmd.startsWith(".") || cmd.startsWith("!")) cmd = cmd.slice(1).trim();
+            if (!cmd) {
+                updateUI('listening', 'YES BOSS?');
+                setTimeout(() => updateUI('', 'WAITING FOR JARVIS...'), 2000);
+                return;
+            }
+            wakeMode = false;
+            sendToJarvis(cmd);
+            setTimeout(() => { wakeMode = true; }, 3000);
+        } else {
+            sendToJarvis(transcript);
+        }
     };
     recognition.onerror = (event) => {
         console.error("Speech Error:", event.error);
@@ -95,6 +119,12 @@ if (SpeechRecognition) {
             }, 100);
         }
     };
+    // Auto-restart wake mode if stopped externally
+    setInterval(() => {
+        if (isListening && !isSpeaking && recognition && recognition.state === 'inactive') {
+            try { recognition.start(); } catch(e) {}
+        }
+    }, 5000);
 }
 
 function appendChat(label, text) {
@@ -172,6 +202,9 @@ async function sendToJarvis(message) {
     appendChat('user', message);
     updateSidebarHistory(message, 'user');
     updateSidebarSessions('You: ' + message);
+    sessionLastPreview = 'You: ' + message;
+    sessionMsgCount++;
+    saveMemory();
     updateUI('processing', 'WORKING...');
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -179,7 +212,7 @@ async function sendToJarvis(message) {
         const response = await fetch('/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message }),
+            body: JSON.stringify({ message, session_id: sessionId }),
             signal: controller.signal
         });
         clearTimeout(timeoutId);
@@ -187,6 +220,8 @@ async function sendToJarvis(message) {
         if (data.reply) {
             appendChat('assistant', data.reply);
             updateSidebarHistory(data.reply, 'jarvis');
+            sessionLastPreview = 'Jarvis: ' + data.reply;
+            sessionMsgCount++;
             updateUI('', 'SYSTEM ONLINE');
             speak(data.reply);
             executeAndroidTask(data);
@@ -230,7 +265,7 @@ const PKG_MAP = {
 };
 
 const ANDROID_TASK_MAP = {
-    "open_app": "openApp", "close_app": "closeApp", "play_yt": "openUrl", "open_website": null, "search": null,
+    "open_app": "openApp", "close_app": "closeApp", "play_yt": "openUrl", "open_website": "openUrl", "search": null,
     "control_volume": "mediaVolume", "control_brightness": "brightness", "toggle_wifi": "wifi", "toggle_bluetooth": "bluetooth",
     "take_shot": null, "take_photo": null, "open_gallery": null, "access_storage": null, "write_note": null,
     "get_battery_status": null, "get_system_info": null, "get_news": null, "call_contact": "openUrl",
@@ -262,9 +297,23 @@ function executeAndroidTask(data) {
             if (Android[bridgeFn]) Android[bridgeFn](target === "on" || target === "enable");
         } else if (task === "control_brightness") {
             if (Android[bridgeFn]) Android[bridgeFn](target === "up" ? 255 : 50);
+        } else if (task === "control_volume") {
+            if (Android[bridgeFn]) Android[bridgeFn](target === "up" ? 1 : target === "down" ? -1 : target === "mute" ? -100 : 0);
         } else if (task === "play_yt") {
             const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(target || "")}`;
             if (Android && Android.openUrl) Android.openUrl(url);
+        } else if (task === "media_control") {
+            const cmd = (target || "play").toLowerCase();
+            if (cmd === "next" && Android.mediaNext) Android.mediaNext();
+            else if (cmd === "previous" && Android.mediaPrev) Android.mediaPrev();
+            else if (Android.mediaPlay) Android.mediaPlay();
+        } else if (task === "share_content") {
+            if (Android.share) Android.share(target || "");
+        } else if (task === "call_contact") {
+            const url = `tel:${encodeURIComponent(target || "")}`;
+            if (Android.openUrl) Android.openUrl(url);
+        } else if (task === "open_website") {
+            if (target && Android.openUrl) Android.openUrl(target);
         }
     } catch (e) {
         console.error("[Android bridge error]", e);
@@ -323,18 +372,24 @@ function resetState() {
     updateUI('', 'SYSTEM OFFLINE');
 }
 
-function startListening() {
+function startListening(bypassWake) {
     if (!recognition) {
         alert("Speech recognition not supported in this browser. Please use Chrome.");
         return;
     }
     isListening = true;
-    updateUI('listening', 'LISTENING...');
+    if (bypassWake) {
+        wakeMode = false;
+        updateUI('listening', 'LISTENING...');
+        setTimeout(() => { wakeMode = true; }, 5000);
+    } else {
+        updateUI('listening', 'WAITING FOR JARVIS...');
+    }
     recognition.lang = 'en-US';
     try { recognition.start(); } catch (e) {}
 }
 
-voiceTrigger.addEventListener('click', startListening);
+voiceTrigger.addEventListener('click', function() { startListening(true); });
 
 const chatInput = document.getElementById('chatInput');
 const chatSendBtn = document.getElementById('chatSendBtn');
@@ -363,6 +418,87 @@ if (imageDisplay) {
 animate();
 updateUI('', 'SYSTEM ONLINE');
 console.log("JARVIS UI READY");
+
+// Auto-save memory every 20 seconds
+function saveMemory() {
+    if (!sessionMsgCount && !sessionLastPreview) return;
+    fetch('/memory/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session_id: sessionId,
+            preview: sessionLastPreview.slice(0, 120),
+            name: 'Session ' + new Date().toLocaleDateString()
+        })
+    }).catch(function() {});
+}
+
+setInterval(saveMemory, 20000);
+
+// Load sessions from backend
+function loadSessions() {
+    fetch('/sessions')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            const list = document.getElementById("sidebarSessions");
+            if (!list) return;
+            const sessions = data.sessions || [];
+            list.innerHTML = '';
+            if (sessions.length === 0) {
+                list.innerHTML = '<div class="sidebar-empty">No sessions yet.</div>';
+                return;
+            }
+            sessions.forEach(function(s) {
+                const item = document.createElement("div");
+                item.className = "sidebar-item";
+                item.style.cursor = "pointer";
+                const date = new Date(s.updated_at || s.created_at);
+                const timeStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const preview = s.last_preview || s.name || 'Session ' + s.id.slice(0, 8);
+                item.innerHTML = '<div class="item-label">' + s.message_count + ' msgs</div><div>' + escapeHtml(preview.slice(0, 80)) + '</div><div class="item-time">' + timeStr + '</div>';
+                item.addEventListener('click', function() {
+                    closeSidebar();
+                    loadSessionMessages(s.id);
+                });
+                list.appendChild(item);
+            });
+        })
+        .catch(function() {});
+}
+
+// Load messages from a specific session
+function loadSessionMessages(sessionId) {
+    fetch('/sessions/' + encodeURIComponent(sessionId))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            const msgs = document.getElementById('chatMessages');
+            const log = document.getElementById('chatLog');
+            if (!msgs) return;
+            msgs.innerHTML = '';
+            (data.messages || []).forEach(function(m) {
+                const div = document.createElement('div');
+                div.className = 'chat-msg ' + m.role;
+                div.innerHTML = '<div class="label">' + m.role + '</div><div class="text">' + escapeHtml(m.content) + '</div>';
+                msgs.appendChild(div);
+            });
+            log.style.display = 'block';
+            log.scrollTop = log.scrollHeight;
+        })
+        .catch(function() {});
+}
+
+// Override updateSidebarSessions to load from backend instead
+function updateSidebarSessions(text) {
+    // Only loads from /sessions endpoint now
+}
+
+// Override toggleSidebar to refresh sessions on open
+const origToggle = toggleSidebar;
+toggleSidebar = function() {
+    const open = sidebarPanel.classList.toggle("open");
+    sidebarOverlay.classList.toggle("active", open);
+    if (open) loadSessions();
+};
 
 const bgCanvas = document.getElementById("bgCanvas");
 const bgCtx = bgCanvas.getContext("2d");

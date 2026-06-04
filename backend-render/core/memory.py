@@ -19,7 +19,8 @@ class Memory:
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                                 role TEXT,
-                                content TEXT
+                                content TEXT,
+                                session_id TEXT DEFAULT NULL
                             )''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS user_facts (
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,6 +36,15 @@ class Memory:
                                 task TEXT,
                                 status TEXT
                             )''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS sessions (
+                                id TEXT PRIMARY KEY,
+                                name TEXT DEFAULT '',
+                                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                message_count INTEGER DEFAULT 0,
+                                last_preview TEXT DEFAULT ''
+                            )''')
+            cursor.execute('''CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC)''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_facts_key ON user_facts(fact_key)')
             cursor.execute("PRAGMA table_info(user_facts)")
             columns = [column[1] for column in cursor.fetchall()]
@@ -109,5 +119,78 @@ class Memory:
             cursor.execute("DELETE FROM task_log")
             conn.commit()
 
+    def create_session(self, session_id, name=""):
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR IGNORE INTO sessions (id, name) VALUES (?, ?)", (session_id, name))
+            conn.commit()
+
+    def update_session(self, session_id, preview="", count=1):
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE sessions SET updated_at = CURRENT_TIMESTAMP, last_preview = ?, message_count = message_count + ? WHERE id = ?", (preview, count, session_id))
+            conn.commit()
+
+    def add_with_session(self, role, content, session_id=None):
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            if session_id:
+                cursor.execute("INSERT INTO chat_history (role, content, session_id) VALUES (?, ?, ?)", (role, content, session_id))
+            else:
+                cursor.execute("INSERT INTO chat_history (role, content) VALUES (?, ?)", (role, content))
+            conn.commit()
+
+    def get_sessions(self, limit=20):
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, name, created_at, updated_at, message_count, last_preview FROM sessions ORDER BY updated_at DESC LIMIT ?", (limit,))
+            return [{"id": r[0], "name": r[1], "created_at": r[2], "updated_at": r[3], "message_count": r[4], "last_preview": r[5]} for r in cursor.fetchall()]
+
+    def get_session_messages(self, session_id):
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT role, content, timestamp FROM chat_history WHERE session_id = ? ORDER BY id ASC", (session_id,))
+            return [{"role": r[0], "content": r[1], "timestamp": r[2]} for r in cursor.fetchall()]
+
+    def delete_session(self, session_id):
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM chat_history WHERE session_id = ?", (session_id,))
+            cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            conn.commit()
+
     def get(self, limit=20):
         return self.get_recent_chat(limit)
+
+    def create_session(self, session_id, name=""):
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR IGNORE INTO sessions (id, name) VALUES (?, ?)", (session_id, name))
+            conn.commit()
+
+    def update_session(self, session_id, preview="", count=1):
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE sessions SET updated_at = CURRENT_TIMESTAMP, last_preview = ?, message_count = message_count + ? WHERE id = ?", (preview, count, session_id))
+            conn.commit()
+
+    def add_with_session(self, role, content, session_id=None):
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            if session_id:
+                cursor.execute("INSERT INTO chat_history (role, content, session_id) VALUES (?, ?, ?)", (role, content, session_id))
+            else:
+                cursor.execute("INSERT INTO chat_history (role, content) VALUES (?, ?)", (role, content))
+            conn.commit()
+
+    def get_sessions(self, limit=20):
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, name, created_at, updated_at, message_count, last_preview FROM sessions ORDER BY updated_at DESC LIMIT ?", (limit,))
+            return [{"id": r[0], "name": r[1], "created_at": r[2], "updated_at": r[3], "message_count": r[4], "last_preview": r[5]} for r in cursor.fetchall()]
+
+    def get_session_messages(self, session_id):
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT role, content, timestamp FROM chat_history WHERE session_id = ? ORDER BY id ASC", (session_id,))
+            return [{"role": r[0], "content": r[1], "timestamp": r[2]} for r in cursor.fetchall()]

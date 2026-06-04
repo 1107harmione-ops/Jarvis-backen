@@ -170,6 +170,36 @@ def shutdown_backend():
     print("[JARVIS] Shutdown requested")
     os._exit(0)
 
+
+@app.route("/memory/save", methods=["POST"])
+def memory_save():
+    data = request.json or {}
+    session_id = data.get("session_id", "")
+    preview = data.get("preview", "")
+    name = data.get("name", "")
+    if session_id:
+        _memory.create_session(session_id, name)
+        _memory.update_session(session_id, preview=preview, count=0)
+        return jsonify({"status": "saved", "session_id": session_id})
+    return jsonify({"status": "ok"})
+
+@app.route("/sessions", methods=["GET"])
+def list_sessions():
+    limit = request.args.get("limit", 20, type=int)
+    sessions = _memory.get_sessions(limit=limit)
+    return jsonify({"sessions": sessions})
+
+@app.route("/sessions/<session_id>", methods=["GET"])
+def get_session(session_id):
+    messages = _memory.get_session_messages(session_id)
+    return jsonify({"messages": messages})
+
+@app.route("/sessions/<session_id>", methods=["DELETE"])
+def delete_session(session_id):
+    _memory.delete_session(session_id)
+    return jsonify({"status": "deleted"})
+
+
 if __name__ == "__main__":
     print("\n" + "=" * 55)
     print("  JARVIS BACKEND (Render Edition)")

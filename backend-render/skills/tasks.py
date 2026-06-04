@@ -1,18 +1,18 @@
 # tasks.py — JARVIS Task Core (Render Cloud Edition)
-# All device-control functions return "not available" stubs.
-# AI-relevant functions (get_time, get_news, get_realtime_data, etc.) work fully.
+# Device-control functions that have Android bridge equivalents return
+# success confirmations (the APK's script.js executes them locally).
+# Functions without a bridge or backend implementation return "not available".
 
-import os, json, webbrowser, urllib.parse, platform, re, time
+import os, json, urllib.parse, platform, re, time
 from datetime import datetime
 from skills.img import generate_image
 
-def _not_available(feature: str) -> str:
-    return f"[{feature} is not available in cloud mode]"
 
 # ── AI-relevant functions (fully working) ──
 
 def get_time():
     return datetime.now().strftime("%I:%M %p, %A %B %d, %Y")
+
 
 def get_realtime_data(q: str):
     from core.config import SERP_API_KEY
@@ -33,6 +33,7 @@ def get_realtime_data(q: str):
         return f"No real-time results found for '{q}'."
     except Exception as e:
         return f"Search error: {e}"
+
 
 def get_news(topic: str = ""):
     from core.config import NEWS_API_KEY
@@ -57,6 +58,7 @@ def get_news(topic: str = ""):
     except Exception as e:
         return f"News fetch error: {e}"
 
+
 def write_note(t):
     notes_dir = os.path.join(os.path.expanduser("~"), ".jarvis_notes")
     os.makedirs(notes_dir, exist_ok=True)
@@ -65,10 +67,12 @@ def write_note(t):
         f.write(t)
     return f"Note saved to {filepath}."
 
+
 def get_system_info():
     info = {"OS": f"{platform.system()} {platform.release()}", "Machine": platform.machine(), "Hostname": platform.node(), "Python": platform.python_version(), "CPU Cores": os.cpu_count()}
     parts = [f"{k}: {v}" for k, v in info.items()]
     return " | ".join(parts)
+
 
 def generate_image_task(prompt: str):
     if not prompt or str(prompt).lower() in ["none", "null", ""]:
@@ -84,22 +88,10 @@ def generate_image_task(prompt: str):
     except Exception as e:
         return json.dumps({"status": "error", "message": f"Image generation error: {e}"})
 
+
 def get_time_date():
     return get_time()
 
-# ── Device functions (stubs — not available in cloud) ──
-
-def open_app(n: str):
-    return _not_available("Open app")
-
-def close_app(n: str):
-    return _not_available("Close app")
-
-def open_any_app(n: str):
-    return _not_available("Open app")
-
-def play_yt(q: str):
-    return _not_available("YouTube playback")
 
 def search(q: str):
     from core.config import SERP_API_KEY
@@ -111,86 +103,138 @@ def search(q: str):
     except Exception:
         return f"Searched for '{q}' online."
 
-def take_shot():
-    return _not_available("Screenshot")
-
-def lock_screen():
-    return _not_available("Screen lock")
-
-def shutdown():
-    return _not_available("Shutdown")
-
-def restart():
-    return _not_available("Restart")
-
-def cancel_shutdown():
-    return _not_available("Shutdown control")
-
-def get_battery_status():
-    return "Battery status not available in cloud mode."
-
-def control_volume(direction: str = ""):
-    return _not_available("Volume control")
-
-def control_brightness(direction: str = ""):
-    return _not_available("Brightness control")
-
-def toggle_wifi(state: str = ""):
-    return _not_available("WiFi control")
-
-def toggle_bluetooth(state: str = ""):
-    return _not_available("Bluetooth control")
-
-def open_website(url: str):
-    return _not_available("Open website")
-
-def open_gallery():
-    return _not_available("Gallery")
-
-def access_storage():
-    return _not_available("File manager")
-
-def take_photo():
-    return _not_available("Camera")
-
-def call_contact(n: str):
-    return _not_available("Phone calls")
-
-def read_notifications(max_count: int = 10):
-    return _not_available("Notifications")
-
-def send_sms(t: str):
-    return _not_available("SMS")
-
-def read_sms(target: str = ""):
-    return _not_available("SMS")
-
-def get_contacts(_=None):
-    return _not_available("Contacts")
-
-def media_control(cmd: str = "play"):
-    return _not_available("Media control")
-
-def share_content(text: str):
-    return _not_available("Share")
-
-def get_wifi_info(_=None):
-    return _not_available("WiFi info")
-
-def set_wallpaper(target: str = ""):
-    return _not_available("Wallpaper")
-
-def get_call_log(target: str = ""):
-    return _not_available("Call log")
-
-def get_location(_=None):
-    return _not_available("Location")
 
 def search_and_read(q: str):
     return get_realtime_data(q)
 
+
+# ── Bridge-handled device functions (cloud stub confirms — APK executes locally) ──
+
+def open_app(n: str):
+    return f"Opening {n} on your device."
+
+
+def close_app(n: str):
+    return f"Closing {n}."
+
+
+def open_any_app(n: str):
+    return f"Opening {n} on your device."
+
+
+def play_yt(q: str):
+    return f"Searching YouTube for {q}."
+
+
+def control_volume(direction: str = ""):
+    return "Adjusting volume."
+
+
+def control_brightness(direction: str = ""):
+    return "Adjusting brightness."
+
+
+def toggle_wifi(state: str = ""):
+    return f"WiFi turned {'on' if state in ('on', 'enable') else 'off'}."
+
+
+def toggle_bluetooth(state: str = ""):
+    return f"Bluetooth turned {'on' if state in ('on', 'enable') else 'off'}."
+
+
+def media_control(cmd: str = "play"):
+    return "Controlling media playback."
+
+
+def share_content(text: str):
+    return "Sharing content."
+
+
+def call_contact(n: str):
+    return f"Calling {n}."
+
+
+def open_website(url: str):
+    return f"Opening {url}."
+
+
+# ── Truly unavailable functions (no bridge, no backend) ──
+
+def _not_available(feature: str) -> str:
+    return f"[{feature} is not available in cloud mode]"
+
+
+def take_shot():
+    return _not_available("Screenshot")
+
+
+def lock_screen():
+    return _not_available("Screen lock")
+
+
+def shutdown():
+    return _not_available("Shutdown")
+
+
+def restart():
+    return _not_available("Restart")
+
+
+def cancel_shutdown():
+    return _not_available("Shutdown control")
+
+
+def get_battery_status():
+    return "Battery status not available in cloud mode."
+
+
+def open_gallery():
+    return _not_available("Gallery")
+
+
+def access_storage():
+    return _not_available("File manager")
+
+
+def take_photo():
+    return _not_available("Camera")
+
+
+def read_notifications(max_count: int = 10):
+    return _not_available("Notifications")
+
+
+def send_sms(t: str):
+    return _not_available("SMS")
+
+
+def read_sms(target: str = ""):
+    return _not_available("SMS")
+
+
+def get_contacts(_=None):
+    return _not_available("Contacts")
+
+
+def get_wifi_info(_=None):
+    return _not_available("WiFi info")
+
+
+def set_wallpaper(target: str = ""):
+    return _not_available("Wallpaper")
+
+
+def get_call_log(target: str = ""):
+    return _not_available("Call log")
+
+
+def get_location(_=None):
+    return _not_available("Location")
+
+
 def understand_screen():
     return _not_available("Screen understanding")
+
 
 lock = lock_screen
 open_application = open_app
