@@ -1,0 +1,83 @@
+package com.jarvis
+
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+
+enum class MessageType { USER, BOT, SYSTEM, ERROR }
+
+data class ChatMessage(
+    val text: String,
+    val type: MessageType = MessageType.BOT,
+    val timestamp: Long = System.currentTimeMillis()
+) {
+    val isUser get() = type == MessageType.USER
+    val isSystem get() = type == MessageType.SYSTEM
+    val isError get() = type == MessageType.ERROR
+}
+
+data class LogEntry(
+    val text: String,
+    val isError: Boolean = false,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+object ChatState {
+    val messages = mutableStateListOf<ChatMessage>()
+    val logs = mutableStateListOf<LogEntry>()
+
+    private val _connectionStatus = mutableStateOf("Disconnected")
+    var connectionStatus: String
+        get() = _connectionStatus.value
+        set(v) { _connectionStatus.value = v }
+
+    private val _isServiceRunning = mutableStateOf(false)
+    var isServiceRunning: Boolean
+        get() = _isServiceRunning.value
+        set(v) { _isServiceRunning.value = v }
+
+    private val _isTyping = mutableStateOf(false)
+    var isTyping: Boolean
+        get() = _isTyping.value
+        set(v) { _isTyping.value = v }
+
+    private val _activeTab = mutableStateOf(Screen.CHAT)
+    var activeTab: Screen
+        get() = _activeTab.value
+        set(v) { _activeTab.value = v }
+
+    private const val MAX_LOG = 200
+    private const val MAX_MSG = 200
+
+    fun addUserMessage(text: String) {
+        messages.add(ChatMessage(text, type = MessageType.USER))
+        trim()
+    }
+
+    fun addBotMessage(text: String) {
+        messages.add(ChatMessage(text, type = MessageType.BOT))
+        trim()
+    }
+
+    fun addSystemMessage(text: String) {
+        messages.add(ChatMessage(text, type = MessageType.SYSTEM))
+        trim()
+    }
+
+    fun addErrorMessage(text: String) {
+        messages.add(ChatMessage(text, type = MessageType.ERROR))
+        trim()
+    }
+
+    fun addLog(text: String, isError: Boolean = false) {
+        logs.add(LogEntry(text, isError))
+        if (logs.size > MAX_LOG) logs.removeAt(0)
+    }
+
+    fun clearMessages() {
+        messages.clear()
+    }
+
+    private fun trim() {
+        while (messages.size > MAX_MSG) messages.removeAt(0)
+    }
+}
