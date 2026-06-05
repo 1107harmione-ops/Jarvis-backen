@@ -78,6 +78,12 @@ let isSpeaking = false;
 let recognition = null;
 let nativeRecognition = false;
 let btConnected = false;
+let useFallbackTranscription = false;
+let fallbackMicStream = null;
+let fallbackRecorder = null;
+let fallbackChunks = [];
+let fallbackListening = false;
+let fallbackSessionId = 0;
 let sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
 let sessionMsgCount = 0;
 let sessionLastPreview = "";
@@ -143,6 +149,7 @@ function cancelTts() {
     if (recognition) {
         try { recognition.abort(); } catch(e) { try { recognition.stop(); } catch(e2) {} }
     }
+    stopFallbackListening();
 }
 
 // ─── Web Speech Recognition ───
@@ -179,6 +186,9 @@ if (SpeechRecognition) {
         if (event.error === 'not-allowed') {
             alert("Microphone access denied. Please allow it in browser settings.");
             isListening = false;
+        } else if (event.error === 'service-not-allowed' || event.error === 'audio-capture' || event.error === 'network') {
+            useFallbackTranscription = true;
+            startFallbackListening();
         } else if (event.error === 'aborted') {
             resumeListening(200);
         } else {
@@ -492,12 +502,182 @@ function resumeListening(delayMs) {
                     try { Android.startNativeListening(false); } catch(e) {}
                 }
             }, 200);
+        } else if (useFallbackTranscription) {
+            startFallbackListening();
         } else if (nativeRecognition === false && recognition) {
             try { recognition.start(); } catch(e) {
-                setTimeout(function() { try { recognition.start(); } catch(e2) {} }, 500);
+                setTimeout(function() {
+                    try { recognition.start(); }
+                    catch(e2) {
+                        useFallbackTranscription = true;
+                        startFallbackListening();
+                    }
+                }, 500);
             }
+        } else {
+            useFallbackTranscription = true;
+            startFallbackListening();
         }
     }, d);
+}
+
+function stopFallbackListening() {
+    fallbackListening = false;
+    fallbackSessionId++;
+    if (fallbackRecorder && fallbackRecorder.state !== 'inactive') {
+        try { fallbackRecorder.stop(); } catch(e) {}
+    }
+    if (fallbackMicStream) {
+        fallbackMicStream.getTracks().forEach(function(track) { track.stop(); });
+        fallbackMicStream = null;
+    }
+    fallbackRecorder = null;
+    fallbackChunks = [];
+}
+
+function base64FromArrayBuffer(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var binary = '';
+    var chunkSize = 0x8000;
+    for (var i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
+}
+
+function encodeWavFromAudioBuffer(audioBuffer, targetSampleRate) {
+    targetSampleRate = targetSampleRate || 16000;
+    var channelData = audioBuffer.getChannelData(0);
+    var srcSampleRate = audioBuffer.sampleRate;
+    var sampleCount = Math.max(1, Math.floor(channelData.length * targetSampleRate / srcSampleRate));
+    var samples = new Int16Array(sampleCount);
+    for (var i = 0; i < sampleCount; i++) {
+        var srcIndex = Math.min(channelData.length - 1, Math.floor(i * srcSampleRate / targetSampleRate));
+        var sample = Math.max(-1, Math.min(1, channelData[srcIndex]));
+        samples[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+    }
+    var buffer = new ArrayBuffer(44 + samples.length * 2);
+    var view = new DataView(buffer);
+    function writeString(offset, str) {
+        for (var j = 0; j < str.length; j++) view.setUint8(offset + j, str.charCodeAt(j));
+    }
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, targetSampleRate, true);
+    view.setUint32(28, targetSampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+    var offset = 44;
+    for (var k = 0; k < samples.length; k++, offset += 2) {
+        view.setInt16(offset, samples[k], true);
+    }
+    return buffer;
+}
+
+async function transcribeFallbackBlob(blob) {
+    var ctx = null;
+    try {
+        var arrayBuffer = await blob.arrayBuffer();
+        var AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return '';
+        ctx = new AudioCtx();
+        var decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+        var wavBuffer = encodeWavFromAudioBuffer(decoded, 16000);
+        var base64 = base64FromArrayBuffer(wavBuffer);
+        var response = await fetch('/transcribe/json', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ audio: base64 })
+        });
+        var data = await response.json();
+        return (data && data.text) ? String(data.text).trim() : '';
+    } catch (e) {
+        console.error('Fallback transcription failed:', e);
+        return '';
+    } finally {
+        if (ctx && typeof ctx.close === 'function') {
+            try { await ctx.close(); } catch (e) {}
+        }
+    }
+}
+
+async function startFallbackListening() {
+    if (fallbackListening || !isListening || isSpeaking) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+        console.warn('Fallback voice capture unavailable');
+        return;
+    }
+    fallbackListening = true;
+    var mySession = ++fallbackSessionId;
+    try {
+        fallbackMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (!fallbackListening || mySession !== fallbackSessionId) {
+            stopFallbackListening();
+            return;
+        }
+        fallbackChunks = [];
+        var recorderOptions = {};
+        if (typeof MediaRecorder.isTypeSupported === 'function') {
+            if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+                recorderOptions.mimeType = 'audio/webm;codecs=opus';
+            } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+                recorderOptions.mimeType = 'audio/webm';
+            }
+        }
+        fallbackRecorder = new MediaRecorder(fallbackMicStream, recorderOptions);
+        fallbackRecorder.ondataavailable = function(event) {
+            if (event.data && event.data.size > 0) fallbackChunks.push(event.data);
+        };
+        fallbackRecorder.onerror = function(event) {
+            console.error('Fallback recorder error:', event.error || event);
+            stopFallbackListening();
+        };
+        fallbackRecorder.onstop = async function() {
+            var blob = new Blob(fallbackChunks, { type: fallbackRecorder && fallbackRecorder.mimeType ? fallbackRecorder.mimeType : 'audio/webm' });
+            var shouldProcess = fallbackListening && isListening && !isSpeaking && mySession === fallbackSessionId;
+            stopFallbackListening();
+            if (!shouldProcess) return;
+            updateUI('listening', 'TRANSCRIBING...');
+            var transcript = await transcribeFallbackBlob(blob);
+            if (transcript) {
+                if (routeAdminVoice(transcript)) {
+                    if (isListening) resumeListening(400);
+                    return;
+                }
+                sendToJarvis(transcript);
+            } else if (isListening) {
+                resumeListening(400);
+            }
+        };
+        fallbackRecorder.start();
+        updateUI('listening', 'LISTENING...');
+        setTimeout(function() {
+            if (!fallbackRecorder || fallbackRecorder.state === 'inactive') return;
+            try { fallbackRecorder.stop(); } catch(e) {}
+        }, 4500);
+    } catch (e) {
+        console.error('Fallback mic start failed:', e);
+        stopFallbackListening();
+    }
+}
+
+async function ensureMicPermission() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return true;
+    try {
+        var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(function(track) { track.stop(); });
+        return true;
+    } catch (e) {
+        console.warn('Microphone permission denied:', e);
+        return false;
+    }
 }
 
 function resetState() {
@@ -549,16 +729,25 @@ function detectBluetoothMic() {
 async function startListening() {
     isListening = true;
     updateUI('listening', 'LISTENING...');
-    if (typeof Android !== 'undefined') {
+    var micReady = await ensureMicPermission();
+    if (!micReady) {
+        isListening = false;
+        updateUI('', 'MICROPHONE REQUIRED');
+        return;
+    }
+    if (typeof Android !== 'undefined' && !useFallbackTranscription) {
         nativeRecognition = true;
+        useFallbackTranscription = false;
         try { btConnected = Android.isBluetoothConnected(); } catch(e) { btConnected = false; }
         try { Android.stopNativeListening(); } catch(e) {}
         try { Android.startNativeListening(false); } catch(e) { console.error("Native listen start fail:", e); }
         return;
     }
     nativeRecognition = false;
-    if (!recognition) {
-        console.warn("Speech recognition not supported");
+    if (useFallbackTranscription || !recognition) {
+        console.warn("Speech recognition not supported; using fallback recorder");
+        useFallbackTranscription = true;
+        startFallbackListening();
         return;
     }
     // Try Bluetooth mic first, fall back to default
@@ -567,7 +756,9 @@ async function startListening() {
     if (btFound && statusText) statusText.textContent = 'BT LISTENING...';
     recognition.lang = 'en-US';
     try { recognition.start(); } catch (e) {
-        setTimeout(function() { try { recognition.start(); } catch(e2) {} }, 500);
+        console.warn('Web speech start failed; falling back to recorder:', e);
+        useFallbackTranscription = true;
+        startFallbackListening();
     }
 }
 
