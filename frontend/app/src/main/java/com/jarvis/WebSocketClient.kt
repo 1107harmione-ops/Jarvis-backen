@@ -6,8 +6,11 @@ import android.provider.MediaStore
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import kotlinx.coroutines.*
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.*
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 class WebSocketClient {
@@ -18,6 +21,11 @@ class WebSocketClient {
         .readTimeout(0, TimeUnit.SECONDS)
         .pingInterval(30, TimeUnit.SECONDS)
         .build()
+    private val chatClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+    private val jsonMediaType = "application/json".toMediaType()
 
     private var ws: WebSocket? = null
     private val gson = Gson()
@@ -328,12 +336,76 @@ class WebSocketClient {
         ChatState.addUserMessage(text)
         ChatState.isTyping = true
         val msg = JsonObject().apply {
+            addProperty("message", text)
             addProperty("text", text)
             addProperty("intent", intent)
             addProperty("speaker", "user")
         }
-        send(msg)
-        log("Sent: $text")
+        val sent = ws?.send(gson.toJson(msg)) == true
+        if (sent) {
+            log("Sent via websocket: $text")
+            return
+        }
+        log("WebSocket unavailable; posting chat over HTTP")
+        scope.launch {
+            postChatFallback(text, intent)
+        }
+    }
+
+    private suspend fun postChatFallback(text: String, intent: String = "UNKNOWN") {
+        try {
+            val body = gson.toJson(
+                mapOf(
+                    "message" to text,
+                    "text" to text,
+                    "intent" to intent,
+                    "speaker" to "user",
+                )
+            )
+            val request = Request.Builder()
+                .url(resolveChatUrl())
+                .post(body.toRequestBody(jsonMediaType))
+                .build()
+            chatClient.newCall(request).execute().use { response ->
+                val raw = response.body?.string().orEmpty()
+                val json = if (raw.isNotBlank()) JsonParser.parseString(raw).asJsonObject else JsonObject()
+                if (response.isSuccessful) {
+                    handleChatHttpResponse(json, raw)
+                } else {
+                    val err = json.get("error")?.asString ?: "Chat API error"
+                    ChatState.addErrorMessage(err)
+                    log("HTTP chat failed: $err", isError = true)
+                }
+            }
+        } catch (e: Exception) {
+            ChatState.addErrorMessage(e.message ?: "Chat request failed")
+            log("HTTP chat fallback failed: ${e.message}", isError = true)
+        } finally {
+            ChatState.isTyping = false
+        }
+    }
+
+    private fun handleChatHttpResponse(json: JsonObject, rawText: String) {
+        val reply = json.get("reply")?.asString?.trim().orEmpty()
+        if (reply.isNotBlank()) {
+            ChatState.addBotMessage(reply)
+            ChatState.isTyping = false
+        } else if (rawText.isNotBlank()) {
+            ChatState.addBotMessage(rawText)
+        }
+        val intent = json.get("intent")?.asString
+        if (intent != null) log("HTTP reply received: intent=$intent")
+        else log("HTTP reply received")
+    }
+
+    private fun resolveChatUrl(): String {
+        val base = if (::serverUrl.isInitialized) serverUrl else SettingsManager.getWsUrl()
+        return base
+            .replace("wss://", "https://")
+            .replace("ws://", "http://")
+            .removeSuffix("/ws")
+            .removeSuffix("/")
+            .let { if (it.endsWith("/chat")) it else "$it/chat" }
     }
 
     fun queryMemory(action: String = "history", limit: Int = 20, query: String = "") {
