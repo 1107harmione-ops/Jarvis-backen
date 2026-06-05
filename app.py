@@ -142,25 +142,52 @@ def refresh_training():
     _training_knowledge, _training_sources = load_training_data()
     return jsonify({"status": "success", "training_entries": len(_training_knowledge), "training_sources": len(_training_sources)})
 
-# --- Speech Recognition (Lite / Vosk fallback) ---
-_stt_mode = "lite"
-try:
-    from speech.lite_stt import transcribe_wav, transcribe, is_available, get_model_info
-    _ = transcribe_wav
-    _ = get_model_info
-    logger.info("STT Lite (Google Web Speech API) — ready, no model download needed")
-except Exception as e:
-    logger.warning("STT Lite init failed: %s", e)
-    _stt_mode = "none"
-    transcribe_wav = None
+# --- Speech Recognition (faster-whisper > Lite > Vosk fallback) ---
+_stt_mode = "none"
+transcribe_wav = None  # primary STT function (assigned by whichever module wins)
 
-# Vosk as optional fallback (no auto-download)
+# 1) faster-whisper — offline, best quality, lazy model load
+try:
+    from speech.faster_whisper_stt import (
+        transcribe_wav as fw_transcribe_wav,
+        is_available as fw_available,
+        init_model as fw_init,
+    )
+    # Try immediate init — if model already cached it will be ready
+    if fw_init():
+        transcribe_wav = fw_transcribe_wav
+        _stt_mode = "faster-whisper"
+        logger.info("STT: faster-whisper loaded (offline)")
+    else:
+        logger.info("STT: faster-whisper model not cached — will lazy-load on first request")
+        transcribe_wav = fw_transcribe_wav
+        _stt_mode = "faster-whisper-lazy"
+except ImportError:
+    logger.info("STT: faster-whisper not installed, skipping")
+except Exception as e:
+    logger.warning("STT: faster-whisper init warning: %s", e)
+
+# 2) Lite (Google Web Speech API) fallback — always ready, no disk footprint
+try:
+    from speech.lite_stt import transcribe_wav as lite_transcribe_wav
+    if _stt_mode == "none":
+        transcribe_wav = lite_transcribe_wav
+        _stt_mode = "lite"
+        logger.info("STT: Lite (Google Web Speech API)")
+    else:
+        # Keep faster-whisper as primary, but store lite for fallback
+        _lite_transcribe_wav = lite_transcribe_wav
+        logger.info("STT: Lite available as fallback")
+except Exception as e:
+    logger.warning("STT: Lite init failed: %s", e)
+
+# 3) Vosk as optional fallback (no auto-download)
 _vosk_ready = False
 try:
     from speech.vosk_stt import init_vosk
     _vosk_ready = init_vosk()
     if _vosk_ready:
-        logger.info("Vosk fallback offline STT available")
+        logger.info("STT: Vosk fallback available")
 except Exception:
     pass
 
@@ -245,9 +272,14 @@ def transcribe_audio():
         return jsonify({"error": "Empty audio", "text": ""})
     try:
         text = transcribe_wav(audio_bytes)
-        if not text and _vosk_ready:
-            from speech.vosk_stt import transcribe_wav as vosk_transcribe
-            text = vosk_transcribe(audio_bytes)
+        # Fallback chain: faster-whisper → lite → vosk
+        if not text:
+            if _stt_mode.startswith("faster-whisper") and "_lite_transcribe_wav" in dir():
+                from speech.lite_stt import transcribe_wav as lite_fallback
+                text = lite_fallback(audio_bytes)
+            if not text and _vosk_ready:
+                from speech.vosk_stt import transcribe_wav as vosk_fallback
+                text = vosk_fallback(audio_bytes)
         return jsonify({"text": text, "error": ""})
     except Exception as e:
         return jsonify({"error": str(e), "text": ""})
@@ -268,9 +300,13 @@ def transcribe_json():
         return jsonify({"error": "Invalid base64", "text": ""})
     try:
         text = transcribe_wav(audio_bytes)
-        if not text and _vosk_ready:
-            from speech.vosk_stt import transcribe_wav as vosk_transcribe
-            text = vosk_transcribe(audio_bytes)
+        if not text:
+            if _stt_mode.startswith("faster-whisper") and "_lite_transcribe_wav" in dir():
+                from speech.lite_stt import transcribe_wav as lite_fallback
+                text = lite_fallback(audio_bytes)
+            if not text and _vosk_ready:
+                from speech.vosk_stt import transcribe_wav as vosk_fallback
+                text = vosk_fallback(audio_bytes)
         return jsonify({"text": text, "error": ""})
     except Exception as e:
         return jsonify({"error": str(e), "text": ""})
@@ -278,10 +314,20 @@ def transcribe_json():
 
 @app.route("/transcribe/status", methods=["GET"])
 def transcribe_status():
-    from speech.lite_stt import is_available, get_model_info
-    info = get_model_info()
-    info["vosk_available"] = _vosk_ready
-    return jsonify({"available": is_available(), "model": info})
+    info = {"mode": _stt_mode, "vosk_available": _vosk_ready}
+    try:
+        if _stt_mode.startswith("faster-whisper"):
+            from speech.faster_whisper_stt import is_available, get_model_info
+            info["available"] = is_available()
+            info["model"] = get_model_info()
+        else:
+            from speech.lite_stt import is_available, get_model_info
+            info["available"] = is_available()
+            info["model"] = get_model_info()
+    except Exception:
+        info["available"] = transcribe_wav is not None
+        info["model"] = {}
+    return jsonify(info)
 
 
 @app.route("/memory/save", methods=["POST"])
@@ -322,9 +368,9 @@ if __name__ == "__main__":
     logger.info("  Training: %d entries", len(_training_knowledge))
     kb_stats = _kb.stats()
     logger.info("  Knowledge: %d entries, %d categories", kb_stats["total_entries"], len(kb_stats["entries_by_category"]))
-    stt_status = "LITE (Google Web Speech)"
+    stt_status = _stt_mode.upper()
     if _vosk_ready:
-        stt_status += " + Vosk fallback"
+        stt_status += " + Vosk"
     logger.info("  STT: %s", stt_status)
     logger.info("=" * 55)
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)

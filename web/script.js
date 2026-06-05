@@ -521,6 +521,12 @@ function executeSingleAndroidTask(task, target) {
 }
 
 function speak(text) {
+    // Guard: if already speaking, cancel previous speech cleanly
+    if (isSpeaking) {
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
+        if (typeof Android !== 'undefined' && Android.stopTts) Android.stopTts();
+        // Let the previous cleanup complete
+    }
     isSpeaking = true;
     // Stop any active recognition before speaking
     if (recognition) {
@@ -531,13 +537,12 @@ function speak(text) {
     cleaned = cleaned.replace(/\s+/g, ' ').trim();
     if (!cleaned) { isSpeaking = false; return; }
     
-    // Estimate TTS duration: ~100ms per word + 500ms buffer
-    var wordCount = cleaned.split(/\s+/).length;
-    var ttsDuration = Math.max(1500, wordCount * 150 + 500);
+    // Estimate TTS duration: ~80ms per character at rate 0.7
+    var charCount = cleaned.length;
+    var ttsDuration = Math.max(2000, charCount * 80 + 600);
     
     if (typeof Android !== 'undefined' && Android.speak) {
         Android.speak(cleaned);
-        // Wait for estimated TTS duration before resuming listening
         setTimeout(function() {
             isSpeaking = false;
             if (isListening) resumeListening(1200);
@@ -551,12 +556,22 @@ function speak(text) {
         utterance.pitch = 0.95;
         const isHindi = /[\u0900-\u097F]/.test(cleaned);
         utterance.lang = isHindi ? 'hi-IN' : 'en-US';
+        
+        // Safety timeout: if onend/onerror never fire, force cleanup
+        var safetyTimer = setTimeout(function() {
+            isSpeaking = false;
+            if (isListening) resumeListening(600);
+        }, ttsDuration);
+        
         utterance.onend = function() {
+            clearTimeout(safetyTimer);
             isSpeaking = false;
             if (isListening) resumeListening(600);
         };
         utterance.onerror = function() {
+            clearTimeout(safetyTimer);
             isSpeaking = false;
+            if (isListening) resumeListening(600);
         };
         speechSynthesis.speak(utterance);
     } else {
@@ -805,10 +820,15 @@ function checkBackendHealth(retries) {
 function speakGreeting() {
     if (typeof Android !== 'undefined' && Android.speak) {
         Android.speak("Crystal systems online");
-    } else if (window.speechSynthesis) {
+        return;
+    }
+    if (window.speechSynthesis) {
+        isSpeaking = true;
         var u = new SpeechSynthesisUtterance("Crystal systems online");
         u.rate = 0.7;
         u.pitch = 0.95;
+        u.onend = function() { isSpeaking = false; };
+        u.onerror = function() { isSpeaking = false; };
         speechSynthesis.speak(u);
     }
 }
