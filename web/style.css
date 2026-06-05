@@ -1,6 +1,5 @@
 :root {
     --orb-size: 320px;
-    --core-size: 90px;
     --ring1-size: 240px;
     --ring2-size: 280px;
 }
@@ -8,7 +7,6 @@
 @media (max-width: 600px) {
     :root {
         --orb-size: 70vw;
-        --core-size: 20vw;
         --ring1-size: 55vw;
         --ring2-size: 65vw;
     }
@@ -18,7 +16,7 @@ body {
     margin: 0;
     background: #03050c;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    color: #FFD700;
+    color: #00e5ff;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -42,8 +40,8 @@ body {
     margin-bottom: 2rem;
     font-family: monospace;
     font-size: clamp(1rem, 4vw, 1.2rem);
-    color: #FFA500;
-    text-shadow: 0 0 10px rgba(255, 165, 0, 0.4);
+    color: #00e5ff;
+    text-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
 }
 
 .center {
@@ -57,20 +55,161 @@ body {
 .center:hover { transform: scale(1.05); }
 .center:active { transform: scale(0.95); }
 
-.center.listening .core {
-    background: radial-gradient(circle, #ff4444, #cc0000);
-    box-shadow: 0 0 60px #cc0000;
+/* ─── Crystal Water Orb ─── */
+.crystal-orb {
+    position: absolute;
+    width: 85%;
+    height: 85%;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, rgba(0, 229, 255, 0.25), rgba(105, 240, 174, 0.1) 40%, rgba(0, 20, 40, 0.6) 80%);
+    box-shadow: 
+        0 0 40px rgba(0, 229, 255, 0.3),
+        0 0 80px rgba(0, 229, 255, 0.1),
+        inset 0 0 60px rgba(0, 229, 255, 0.05);
+    overflow: hidden;
+    z-index: 2;
+    animation: crystalPulse 4s ease-in-out infinite;
 }
 
-.center.processing .core {
-    background: radial-gradient(circle, #00d4ff, #0088aa);
-    box-shadow: 0 0 60px #00d4ff;
-    animation: pulseCore 1s ease-in-out infinite;
+.crystal-orb::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: conic-gradient(
+        transparent 0deg,
+        rgba(0, 229, 255, 0.05) 60deg,
+        rgba(105, 240, 174, 0.08) 120deg,
+        rgba(179, 136, 255, 0.05) 180deg,
+        rgba(0, 229, 255, 0.08) 240deg,
+        rgba(105, 240, 174, 0.05) 300deg,
+        transparent 360deg
+    );
+    animation: crystalSpin 8s linear infinite;
+    pointer-events: none;
 }
 
-@keyframes pulseCore {
-    0%, 100% { transform: translate(-50%, -50%) scale(1); }
-    50% { transform: translate(-50%, -50%) scale(1.1); }
+.crystal-orb::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border-radius: 50%;
+    background: 
+        radial-gradient(circle at 25% 25%, rgba(255, 255, 255, 0.2) 0%, transparent 40%),
+        radial-gradient(circle at 75% 35%, rgba(0, 229, 255, 0.15) 0%, transparent 35%),
+        radial-gradient(circle at 50% 70%, rgba(105, 240, 174, 0.1) 0%, transparent 30%);
+    animation: waterRipple 3s ease-in-out infinite;
+    pointer-events: none;
+}
+
+.crystal-highlight {
+    position: absolute;
+    top: 8%;
+    left: 18%;
+    width: 35%;
+    height: 25%;
+    border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
+    transform: rotate(-30deg);
+    z-index: 3;
+    pointer-events: none;
+    animation: highlightShift 5s ease-in-out infinite;
+}
+
+.crystal-core {
+    position: absolute;
+    width: 40%;
+    height: 40%;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(0, 229, 255, 0.4), rgba(105, 240, 174, 0.15) 50%, transparent 70%);
+    box-shadow: 0 0 30px rgba(0, 229, 255, 0.2);
+    z-index: 1;
+    pointer-events: none;
+    animation: coreBreath 3s ease-in-out infinite;
+}
+
+.crystal-facets {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border-radius: 50%;
+    background: 
+        linear-gradient(60deg, transparent 33%, rgba(0, 229, 255, 0.03) 34%, transparent 35%),
+        linear-gradient(120deg, transparent 33%, rgba(105, 240, 174, 0.02) 34%, transparent 35%),
+        linear-gradient(200deg, transparent 33%, rgba(179, 136, 255, 0.03) 34%, transparent 35%),
+        linear-gradient(280deg, transparent 33%, rgba(0, 229, 255, 0.02) 34%, transparent 35%);
+    z-index: 1;
+    pointer-events: none;
+    animation: facetShift 12s linear infinite;
+}
+
+#waterParticles {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 85%;
+    height: 85%;
+    z-index: 3;
+    pointer-events: none;
+    border-radius: 50%;
+}
+
+/* State overrides */
+.center.listening .crystal-orb {
+    background: radial-gradient(circle at 35% 30%, rgba(255, 68, 68, 0.3), rgba(204, 0, 0, 0.15) 40%, rgba(40, 0, 0, 0.6) 80%);
+    box-shadow: 0 0 60px rgba(255, 68, 68, 0.4), 0 0 120px rgba(255, 68, 68, 0.15);
+}
+.center.listening .crystal-core {
+    background: radial-gradient(circle, rgba(255, 68, 68, 0.5), rgba(204, 0, 0, 0.2) 50%, transparent 70%);
+    box-shadow: 0 0 40px rgba(255, 68, 68, 0.3);
+}
+.center.processing .crystal-orb {
+    background: radial-gradient(circle at 35% 30%, rgba(0, 212, 255, 0.35), rgba(0, 136, 170, 0.2) 40%, rgba(0, 30, 50, 0.6) 80%);
+    box-shadow: 0 0 60px rgba(0, 212, 255, 0.4), 0 0 120px rgba(0, 136, 170, 0.15);
+    animation: processingPulse 0.8s ease-in-out infinite;
+}
+.center.processing .crystal-core {
+    background: radial-gradient(circle, rgba(0, 212, 255, 0.6), rgba(0, 136, 170, 0.25) 50%, transparent 70%);
+    box-shadow: 0 0 50px rgba(0, 212, 255, 0.3);
+    animation: coreBreath 0.5s ease-in-out infinite;
+}
+
+@keyframes crystalPulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 40px rgba(0, 229, 255, 0.3), 0 0 80px rgba(0, 229, 255, 0.1); }
+    50% { transform: translate(-50%, -50%) scale(1.02); box-shadow: 0 0 60px rgba(0, 229, 255, 0.4), 0 0 120px rgba(0, 229, 255, 0.15); }
+}
+@keyframes crystalSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes waterRipple {
+    0%, 100% { opacity: 0.6; transform: scale(1); }
+    25% { opacity: 0.8; transform: scale(1.01); }
+    50% { opacity: 0.5; transform: scale(0.99); }
+    75% { opacity: 0.7; transform: scale(1.01); }
+}
+@keyframes highlightShift {
+    0%, 100% { transform: rotate(-30deg) translate(0, 0); opacity: 0.8; }
+    33% { transform: rotate(-20deg) translate(5%, 3%); opacity: 1; }
+    66% { transform: rotate(-40deg) translate(-3%, -2%); opacity: 0.6; }
+}
+@keyframes coreBreath {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
+    50% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
+}
+@keyframes facetShift {
+    0% { transform: rotate(0deg) scale(1); }
+    50% { transform: rotate(180deg) scale(1.05); }
+    100% { transform: rotate(360deg) scale(1); }
+}
+@keyframes processingPulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 40px rgba(0, 212, 255, 0.3); }
+    50% { transform: translate(-50%, -50%) scale(1.03); box-shadow: 0 0 80px rgba(0, 212, 255, 0.5); }
 }
 
 .rings {
@@ -114,28 +253,6 @@ body {
     to { transform: translate(-50%, -50%) rotate(0deg); }
 }
 
-.orb {
-    position: absolute;
-    width: 85%;
-    height: 85%;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-}
-
-.core {
-    position: absolute;
-    width: var(--core-size);
-    height: var(--core-size);
-    background: radial-gradient(circle, #FFD700, #FFA500);
-    border-radius: 50%;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    box-shadow: 0 0 50px #FFA500;
-    transition: all 0.4s ease;
-}
-
 canvas {
     width: 100%;
     height: 100%;
@@ -149,6 +266,8 @@ canvas {
     opacity: 0.6;
     font-family: monospace;
     text-transform: uppercase;
+    color: #00e5ff;
+    text-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
 }
 
 .chat-log {
@@ -159,7 +278,7 @@ canvas {
     max-height: 40vh;
     overflow-y: auto;
     background: rgba(3, 5, 12, 0.88);
-    border-top: 1px solid rgba(255, 165, 0, 0.2);
+    border-top: 1px solid rgba(0, 229, 255, 0.2);
     z-index: 50;
     padding: 8px 12px;
     font-family: 'Courier New', monospace;
@@ -190,9 +309,9 @@ canvas {
 }
 
 .chat-msg.assistant {
-    background: rgba(255, 165, 0, 0.06);
-    color: #ffd700;
-    border-left: 2px solid #ff8c00;
+    background: rgba(0, 229, 255, 0.06);
+    color: #00e5ff;
+    border-left: 2px solid #00e5ff;
     align-self: flex-start;
 }
 
@@ -213,30 +332,30 @@ canvas {
     display: flex;
     gap: 6px;
     padding: 6px 0;
-    border-top: 1px solid rgba(255,165,0,0.15);
+    border-top: 1px solid rgba(0,229,255,0.15);
     margin-top: 6px;
 }
 
 .chat-input {
     flex: 1;
     background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,165,0,0.2);
+    border: 1px solid rgba(0,229,255,0.2);
     border-radius: 6px;
     padding: 8px 12px;
-    color: #ffd700;
+    color: #00e5ff;
     font-family: 'Courier New', monospace;
     font-size: 13px;
     outline: none;
 }
 
-.chat-input:focus { border-color: rgba(255,165,0,0.5); }
-.chat-input::placeholder { color: rgba(255,215,0,0.3); }
+.chat-input:focus { border-color: rgba(0,229,255,0.5); }
+.chat-input::placeholder { color: rgba(0,229,255,0.3); }
 
 .chat-send-btn {
-    background: rgba(255,165,0,0.15);
-    border: 1px solid rgba(255,165,0,0.3);
+    background: rgba(0,229,255,0.15);
+    border: 1px solid rgba(0,229,255,0.3);
     border-radius: 6px;
-    color: #ffd700;
+    color: #00e5ff;
     padding: 8px 16px;
     cursor: pointer;
     font-family: 'Courier New', monospace;
@@ -245,11 +364,11 @@ canvas {
     transition: all 0.2s;
 }
 
-.chat-send-btn:hover { background: rgba(255,165,0,0.25); }
+.chat-send-btn:hover { background: rgba(0,229,255,0.25); }
 
 .chat-log::-webkit-scrollbar { width: 3px; }
 .chat-log::-webkit-scrollbar-track { background: transparent; }
-.chat-log::-webkit-scrollbar-thumb { background: rgba(255, 165, 0, 0.3); border-radius: 3px; }
+.chat-log::-webkit-scrollbar-thumb { background: rgba(0, 229, 255, 0.3); border-radius: 3px; }
 
 .admin-badge {
     position: fixed;
@@ -292,13 +411,13 @@ canvas {
 .hamburger span {
     display: block;
     height: 2px;
-    background: #FFD700;
+    background: #00e5ff;
     border-radius: 2px;
     transition: all 0.3s ease;
-    box-shadow: 0 0 6px rgba(255, 215, 0, 0.4);
+    box-shadow: 0 0 6px rgba(0, 229, 255, 0.3);
 }
 
-.hamburger:hover span { background: #FFA500; }
+.hamburger:hover span { background: #69f0ae; }
 
 .sidebar-overlay {
     position: fixed;
@@ -322,7 +441,7 @@ canvas {
     width: 280px;
     height: 100vh;
     background: rgba(3, 5, 12, 0.97);
-    border-right: 1px solid rgba(255, 165, 0, 0.15);
+    border-right: 1px solid rgba(0, 229, 255, 0.15);
     z-index: 80;
     transition: left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
@@ -338,26 +457,26 @@ canvas {
     justify-content: space-between;
     align-items: center;
     padding: 20px 16px 12px;
-    border-bottom: 1px solid rgba(255, 165, 0, 0.1);
+    border-bottom: 1px solid rgba(0, 229, 255, 0.1);
 }
 
 .sidebar-title {
     font-family: monospace;
     font-size: 20px;
     letter-spacing: 4px;
-    color: #FFD700;
-    text-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
+    color: #00e5ff;
+    text-shadow: 0 0 15px rgba(0, 229, 255, 0.3);
 }
 
 .sidebar-close {
     font-size: 28px;
-    color: rgba(255, 215, 0, 0.5);
+    color: rgba(0, 229, 255, 0.5);
     cursor: pointer;
     line-height: 1;
     transition: color 0.2s;
 }
 
-.sidebar-close:hover { color: #FFD700; }
+.sidebar-close:hover { color: #00e5ff; }
 
 .sidebar-section { padding: 12px 16px; }
 
@@ -365,7 +484,7 @@ canvas {
     font-family: monospace;
     font-size: 11px;
     letter-spacing: 3px;
-    color: rgba(255, 165, 0, 0.6);
+    color: rgba(0, 229, 255, 0.6);
     margin-bottom: 8px;
 }
 
@@ -413,4 +532,27 @@ canvas {
 }
 
 .sidebar::-webkit-scrollbar { width: 2px; }
-.sidebar::-webkit-scrollbar-thumb { background: rgba(255, 165, 0, 0.2); border-radius: 2px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(0, 229, 255, 0.2); border-radius: 2px; }
+
+.admin-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    font-family: monospace;
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: #b388ff;
+    border-top: 1px solid rgba(179, 136, 255, 0.15);
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: auto;
+}
+.admin-link:hover {
+    background: rgba(179, 136, 255, 0.08);
+    color: #d0b3ff;
+}
+.admin-link::before {
+    content: '⚙';
+    font-size: 14px;
+}

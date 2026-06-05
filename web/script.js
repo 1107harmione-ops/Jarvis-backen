@@ -1,4 +1,4 @@
-const canvas = document.getElementById("particles");
+const canvas = document.getElementById("waterParticles");
 const statusText = document.getElementById("statusText");
 const hintText = document.getElementById("hintText");
 const voiceTrigger = document.getElementById("voiceTrigger");
@@ -17,31 +17,62 @@ const { ctx, width, height } = setupCanvas(canvas);
 const centerX = width / 2;
 const centerY = height / 2;
 
-const particles = [];
-const count = 150;
-const baseRadius = width * 0.35;
+// ─── Crystal Water Particles ───
+const waterParticlesCount = 60;
+const waterParticles = [];
 
-for (let i = 0; i < count; i++) {
-  particles.push({
-    angle: Math.random() * Math.PI * 2,
-    radius: baseRadius + Math.random() * (width * 0.1),
-    speed: 0.001 + Math.random() * 0.004,
-    size: 1 + Math.random() * 2
+for (let i = 0; i < waterParticlesCount; i++) {
+  waterParticles.push({
+    x: Math.random() * width,
+    y: Math.random() * height,
+    vx: (Math.random() - 0.5) * 0.3,
+    vy: -0.1 - Math.random() * 0.2,
+    size: 1.5 + Math.random() * 2.5,
+    opacity: 0.3 + Math.random() * 0.4,
+    pulse: Math.random() * Math.PI * 2,
+    pulseSpeed: 0.01 + Math.random() * 0.02
   });
 }
 
 function animate() {
   ctx.clearRect(0, 0, width, height);
-  particles.forEach(p => {
-    p.angle += p.speed;
-    const x = centerX + p.radius * Math.cos(p.angle);
-    const y = centerY + p.radius * Math.sin(p.angle);
-    const depth = Math.sin(p.angle);
-    const opacity = 0.2 + (depth + 1) / 2;
-    ctx.fillStyle = `rgba(255,165,0,${opacity * 0.7})`;
+  waterParticles.forEach(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.pulse += p.pulseSpeed;
+    // Wrap around
+    if (p.y < -10) { p.y = height + 10; p.x = Math.random() * width; }
+    if (p.x < -10) p.x = width + 10;
+    if (p.x > width + 10) p.x = -10;
+    // Slight horizontal drift
+    p.vx += (Math.random() - 0.5) * 0.02;
+    p.vx = Math.max(-0.5, Math.min(0.5, p.vx));
+    // Draw bubble
+    const pulseOpacity = p.opacity * (0.7 + 0.3 * Math.sin(p.pulse));
+    ctx.fillStyle = `rgba(0, 229, 255, ${pulseOpacity * 0.3})`;
     ctx.beginPath();
-    ctx.arc(x, y, p.size, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
     ctx.fill();
+    // Bubble highlight
+    ctx.fillStyle = `rgba(255, 255, 255, ${pulseOpacity * 0.2})`;
+    ctx.beginPath();
+    ctx.arc(p.x - p.size * 0.3, p.y - p.size * 0.3, p.size * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    // Connection lines to nearby particles
+    waterParticles.forEach(p2 => {
+      const dx = p.x - p2.x;
+      const dy = p.y - p2.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 60 && dist > 0) {
+        const alpha = (1 - dist / 60) * 0.08;
+        ctx.strokeStyle = `rgba(0, 229, 255, ${alpha})`;
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+      }
+    });
   });
   requestAnimationFrame(animate);
 }
@@ -430,7 +461,7 @@ function updateUI(state, text) {
     } else if (state === 'processing') {
         hintText.textContent = text || 'WORKING...';
     } else {
-        hintText.textContent = isListening ? 'ALWAYS ON' : 'TAP THE ORB';
+        hintText.textContent = isListening ? 'ALWAYS ON' : 'TAP THE CRYSTAL';
     }
 }
 
@@ -639,16 +670,16 @@ window.addEventListener('resize', resizeBg);
 resizeBg();
 
 const planets = [
-    { radius: 100, size: 1.8, speed: 0.008, color: "#ff6699", angle: Math.random() * Math.PI * 2, hasRings: false },
-    { radius: 160, size: 2.5, speed: 0.006, color: "#00ffff", angle: Math.random() * Math.PI * 2, hasRings: false },
-    { radius: 220, size: 3.2, speed: 0.005, color: "#ff4444", angle: Math.random() * Math.PI * 2, hasRings: false },
-    { radius: 290, size: 4, speed: 0.004, color: "#ffb700", angle: Math.random() * Math.PI * 2, hasRings: false },
-    { radius: 370, size: 5, speed: 0.0032, color: "#00ff88", angle: Math.random() * Math.PI * 2, hasRings: false },
-    { radius: 460, size: 6.5, speed: 0.0025, color: "#aa66ff", angle: Math.random() * Math.PI * 2, hasRings: false },
-    { radius: 550, size: 9, speed: 0.0018, color: "#0088ff", angle: Math.random() * Math.PI * 2, hasRings: true },
-    { radius: 650, size: 5.5, speed: 0.0013, color: "#ff00ff", angle: Math.random() * Math.PI * 2, hasRings: false },
+    { radius: 100, size: 1.8, speed: 0.008, color: "#00e5ff", angle: Math.random() * Math.PI * 2, hasRings: false },
+    { radius: 160, size: 2.5, speed: 0.006, color: "#69f0ae", angle: Math.random() * Math.PI * 2, hasRings: false },
+    { radius: 220, size: 3.2, speed: 0.005, color: "#b388ff", angle: Math.random() * Math.PI * 2, hasRings: false },
+    { radius: 290, size: 4, speed: 0.004, color: "#00bcd4", angle: Math.random() * Math.PI * 2, hasRings: false },
+    { radius: 370, size: 5, speed: 0.0032, color: "#76ff03", angle: Math.random() * Math.PI * 2, hasRings: false },
+    { radius: 460, size: 6.5, speed: 0.0025, color: "#ea80fc", angle: Math.random() * Math.PI * 2, hasRings: false },
+    { radius: 550, size: 9, speed: 0.0018, color: "#18ffff", angle: Math.random() * Math.PI * 2, hasRings: true },
+    { radius: 650, size: 5.5, speed: 0.0013, color: "#ff80ab", angle: Math.random() * Math.PI * 2, hasRings: false },
     { radius: 750, size: 4, speed: 0.001, color: "#aaddff", angle: Math.random() * Math.PI * 2, hasRings: false },
-    { radius: 860, size: 6, speed: 0.0007, color: "#ffcc00", angle: Math.random() * Math.PI * 2, hasRings: true },
+    { radius: 860, size: 6, speed: 0.0007, color: "#82b1ff", angle: Math.random() * Math.PI * 2, hasRings: true },
     { radius: 980, size: 3, speed: 0.0005, color: "#66ffcc", angle: Math.random() * Math.PI * 2, hasRings: false },
     { radius: 1100, size: 2, speed: 0.0003, color: "#ff8866", angle: Math.random() * Math.PI * 2, hasRings: false },
 ];
@@ -694,8 +725,8 @@ function animateSolarSystem() {
     bgCtx.setLineDash([]);
     const sunPulse = 0.8 + 0.2 * Math.sin(Date.now() * 0.001);
     bgCtx.shadowBlur = 100;
-    bgCtx.shadowColor = "#FF8C00";
-    bgCtx.fillStyle = `rgba(255, 140, 0, ${0.04 * sunPulse})`;
+    bgCtx.shadowColor = "#00e5ff";
+    bgCtx.fillStyle = `rgba(0, 229, 255, ${0.04 * sunPulse})`;
     bgCtx.beginPath();
     bgCtx.arc(cx, cy, 120, 0, Math.PI * 2);
     bgCtx.fill();
@@ -757,9 +788,9 @@ setTimeout(function() {
     if (log) log.style.display = 'block';
     startupListening();
     if (typeof Android !== 'undefined' && Android.speak) {
-        Android.speak("Hello boss");
+        Android.speak("Crystal systems online");
     } else if (window.speechSynthesis) {
-        var u = new SpeechSynthesisUtterance("Hello boss");
+        var u = new SpeechSynthesisUtterance("Crystal systems online");
         u.rate = 0.7;
         u.pitch = 0.95;
         speechSynthesis.speak(u);
