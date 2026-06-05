@@ -31,6 +31,7 @@ AI assistant backend deployed on Render. Powers the JARVIS Android app with chat
 1. Connect this repo to Render
 2. Set environment variables:
    - `GROQ_CHAT_API_KEY` - Your Groq API key
+   - `JARVIS_SHUTDOWN_TOKEN` - Optional, only if you intend to enable the shutdown endpoint
 3. Start command: `gunicorn app:app`
 
 ## Android APK

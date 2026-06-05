@@ -107,4 +107,6 @@ def get_audit_log(limit: int = 50) -> list:
 
 def cleanup_tokens():
     clean_expired()
-    threading.Timer(60, cleanup_tokens).start()
+    timer = threading.Timer(60, cleanup_tokens)
+    timer.daemon = True
+    timer.start()

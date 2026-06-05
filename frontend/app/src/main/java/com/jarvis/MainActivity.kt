@@ -210,22 +210,23 @@ class MainActivity : ComponentActivity() {
                 val healthUrl = if (port == "443" || port == "80") "$host/health" else "$host:$port/health"
                 Log.d(TAG, "Health check: $healthUrl")
                 val request = Request.Builder().url(healthUrl).build()
-                val response = client.newCall(request).execute()
-                if (response.isSuccessful) {
-                    Log.d(TAG, "Backend online")
-                    withContext(Dispatchers.Main) {
-                        ChatState.addSystemMessage("🔌 Crystal backend online")
-                        // Wait for WebSocket to settle, then auto-start voice
-                        if (autoListenEnabled) {
-                            Handler(Looper.getMainLooper()).postDelayed({
-                                doVoiceInput()
-                            }, 2000)
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        Log.d(TAG, "Backend online")
+                        withContext(Dispatchers.Main) {
+                            ChatState.addSystemMessage("🔌 Crystal backend online")
+                            // Wait for WebSocket to settle, then auto-start voice
+                            if (autoListenEnabled) {
+                                Handler(Looper.getMainLooper()).postDelayed({
+                                    doVoiceInput()
+                                }, 2000)
+                            }
                         }
-                    }
-                } else {
-                    Log.w(TAG, "Backend health: HTTP ${response.code}")
-                    withContext(Dispatchers.Main) {
-                        ChatState.addSystemMessage("⚠️ Backend error: HTTP ${response.code}")
+                    } else {
+                        Log.w(TAG, "Backend health: HTTP ${response.code}")
+                        withContext(Dispatchers.Main) {
+                            ChatState.addSystemMessage("⚠️ Backend error: HTTP ${response.code}")
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -585,7 +586,9 @@ fun AppSettingsScreen() {
 
         // ── Permissions ──
         SettingsSection("Permissions") {
-            val perms = remember { PermissionsHelper.grantedPermissions(activity!!) }
+            val perms: Map<String, Boolean> = remember(activity) {
+                activity?.let { PermissionsHelper.grantedPermissions(it) } ?: emptyMap()
+            }
             PermissionsHelper.ALL_GROUPS.forEach { group ->
                 val granted = perms[group.name] ?: false
                 Row(

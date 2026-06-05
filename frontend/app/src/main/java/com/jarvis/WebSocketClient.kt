@@ -50,6 +50,9 @@ class WebSocketClient {
             log("Server URL not configured", true)
             return
         }
+        if (scope.coroutineContext[Job]?.isActive != true) {
+            scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        }
         if (status == ConnectionStatus.CONNECTED || status == ConnectionStatus.CONNECTING) return
         shouldReconnect = true
         updateStatus(ConnectionStatus.CONNECTING)
@@ -382,10 +385,10 @@ class WebSocketClient {
     private fun scheduleReconnect() {
         if (!shouldReconnect || reconnectAttempts >= maxReconnectAttempts) return
         reconnectAttempts++
-        val delay = (reconnectAttempts * 2000).coerceAtMost(30000).toLong()
-        log("Reconnecting in ${delay / 1000}s (attempt $reconnectAttempts/$maxReconnectAttempts)")
+        val delayMs = (reconnectAttempts * 2000).coerceAtMost(30000).toLong()
+        log("Reconnecting in ${delayMs / 1000}s (attempt $reconnectAttempts/$maxReconnectAttempts)")
         scope.launch {
-            delay(delay)
+            delay(delayMs)
             connect()
         }
     }

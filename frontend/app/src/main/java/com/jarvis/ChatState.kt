@@ -56,11 +56,6 @@ object ChatState {
         get() = _pendingAdminAuth.value
         set(v) { _pendingAdminAuth.value = v }
 
-    private val _pendingAdminAuth = mutableStateOf(false)
-    var pendingAdminAuth: Boolean
-        get() = _pendingAdminAuth.value
-        set(v) { _pendingAdminAuth.value = v }
-
     private val _adminTabIndex = mutableStateOf(0)
     var adminTabIndex: Int
         get() = _adminTabIndex.value

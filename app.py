@@ -49,7 +49,8 @@ def knowledge_page():
 
 @app.route("/chat", methods=["POST"])
 def chat_process():
-    message = request.json.get("message", "").strip()
+    data = request.get_json(silent=True) or {}
+    message = str(data.get("message", "")).strip()
     if not message:
         return jsonify({"reply": "I didn't hear anything."})
     try:
@@ -193,8 +194,11 @@ def auto_skills_get(skill_id):
 
 @app.route("/shutdown", methods=["POST"])
 def shutdown_backend():
-    token = (request.json or {}).get("token", "")
-    if token != "jarvis_shutdown":
+    shutdown_token = os.environ.get("JARVIS_SHUTDOWN_TOKEN", "").strip()
+    if not shutdown_token:
+        return jsonify({"error": "shutdown disabled"}), 503
+    token = (request.get_json(silent=True) or {}).get("token", "")
+    if token != shutdown_token:
         return jsonify({"error": "invalid token"}), 403
     print("[JARVIS] Shutdown requested")
     os._exit(0)

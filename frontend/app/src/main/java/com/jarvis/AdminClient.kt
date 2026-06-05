@@ -42,15 +42,16 @@ class AdminClient {
                 .url("${baseUrl()}/admin/auth")
                 .post(body.toRequestBody(JSON))
                 .build()
-            val response = client.newCall(request).execute()
-            val json = JsonParser.parseString(response.body?.string() ?: "{}").asJsonObject
-            val status = json.get("status")?.asString ?: "denied"
-            if (status == "granted" && json.has("token")) {
-                token = json.get("token").asString
-                isAuthenticated = true
-                Result.success(json.get("message")?.asString ?: "Admin access granted")
-            } else {
-                Result.failure(Exception(json.get("message")?.asString ?: "Access denied"))
+            client.newCall(request).execute().use { response ->
+                val json = JsonParser.parseString(response.body?.string() ?: "{}").asJsonObject
+                val status = json.get("status")?.asString ?: "denied"
+                if (status == "granted" && json.has("token")) {
+                    token = json.get("token").asString
+                    isAuthenticated = true
+                    Result.success(json.get("message")?.asString ?: "Admin access granted")
+                } else {
+                    Result.failure(Exception(json.get("message")?.asString ?: "Access denied"))
+                }
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -94,9 +95,10 @@ class AdminClient {
     private suspend fun apiGet(path: String): Result<JsonObject> = withContext(Dispatchers.IO) {
         try {
             val request = authRequestBuilder().url("${baseUrl()}$path").get().build()
-            val response = client.newCall(request).execute()
-            val json = JsonParser.parseString(response.body?.string() ?: "{}").asJsonObject
-            if (response.isSuccessful) Result.success(json) else Result.failure(Exception(json.get("error")?.asString ?: "API error"))
+            client.newCall(request).execute().use { response ->
+                val json = JsonParser.parseString(response.body?.string() ?: "{}").asJsonObject
+                if (response.isSuccessful) Result.success(json) else Result.failure(Exception(json.get("error")?.asString ?: "API error"))
+            }
         } catch (e: Exception) { Result.failure(e) }
     }
 
@@ -104,9 +106,10 @@ class AdminClient {
         try {
             val jsonBody = gson.toJson(body)
             val request = authRequestBuilder().url("${baseUrl()}$path").post(jsonBody.toRequestBody(JSON)).build()
-            val response = client.newCall(request).execute()
-            val json = JsonParser.parseString(response.body?.string() ?: "{}").asJsonObject
-            if (response.isSuccessful) Result.success(json) else Result.failure(Exception(json.get("error")?.asString ?: "API error"))
+            client.newCall(request).execute().use { response ->
+                val json = JsonParser.parseString(response.body?.string() ?: "{}").asJsonObject
+                if (response.isSuccessful) Result.success(json) else Result.failure(Exception(json.get("error")?.asString ?: "API error"))
+            }
         } catch (e: Exception) { Result.failure(e) }
     }
 
