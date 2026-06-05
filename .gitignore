@@ -29,3 +29,14 @@ Thumbs.db
 
 # Vosk offline STT model (auto-downloaded on deploy)
 speech/vosk_model/
+
+# Binaries / media — not for version control
+*.apk
+*.wav
+*.mp3
+*.db
+*.sqlite
+*.pyc
+
+# Local-only modules
+audio/

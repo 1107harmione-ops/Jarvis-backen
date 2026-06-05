@@ -1,13 +1,28 @@
-import sys, os, json, logging, time, re
+import sys, os, json, logging, time, re, signal
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# ── Logging ──
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+logger = logging.getLogger("jarvis")
+
 from flask import Flask, render_template, request, jsonify
 from config import PORT, GROQ_CHAT_API_KEY
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+# ── API Key Check ──
+if not GROQ_CHAT_API_KEY:
+    raise RuntimeError("GROQ_CHAT_API_KEY not set! Add it to environment.")
 
 app = Flask(__name__, template_folder="web", static_folder="web", static_url_path="/static")
 app.config["JSONIFY_PRETTYPRINT_REGULAR"] = True
+
+limiter = Limiter(get_remote_address, app=app, default_limits=["60 per minute"])
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
@@ -28,12 +43,25 @@ init_admin(memory_instance=_memory, kb_instance=_kb)
 app.register_blueprint(admin_bp)
 cleanup_tokens()
 
+# ── CORS ──
+ALLOWED_ORIGINS = [
+    "capacitor://localhost",
+    "http://localhost",
+    "http://127.0.0.1",
+    "http://10.0.2.2",
+]
+
 @app.after_request
 def add_cors(resp):
-    resp.headers["Access-Control-Allow-Origin"] = "*"
+    origin = request.headers.get("Origin", "")
+    if origin in ALLOWED_ORIGINS:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+    else:
+        resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, DELETE"
     return resp
+
 
 @app.route("/health")
 def health():
@@ -47,6 +75,8 @@ def index():
 def knowledge_page():
     return render_template("knowledge.html")
 
+
+@limiter.limit("20 per minute")
 @app.route("/chat", methods=["POST"])
 def chat_process():
     data = request.get_json(silent=True) or {}
@@ -59,10 +89,10 @@ def chat_process():
         agent_used = result.get("agent", "chat")
         metadata = result.get("metadata", {})
         time_ms = result.get("time_ms", 0)
-        print(f"JARVIS (Render | {agent_used} | {time_ms}ms): {str(response)[:100]}")
+        logger.info("Chat | agent=%s | time=%dms | msg=%s", agent_used, time_ms, str(message)[:80])
         return jsonify({"reply": str(response), "agent": agent_used, "image_url": metadata.get("image_url"), "filepath": metadata.get("filepath"), "sources": metadata.get("sources"), "execution_output": metadata.get("execution_output"), "task": metadata.get("task"), "target": metadata.get("target"), "compound_execution": metadata.get("compound_execution"), "time_ms": time_ms, "training_entries": len(_training_knowledge), "training_sources": len(_training_sources), "status": "success" if result.get("success", True) else "error"})
     except Exception as e:
-        print(f"Render Chat Error: {e}")
+        logger.error("Chat error: %s", e)
         return jsonify({"error": str(e), "reply": "I encountered a neural link error."})
 
 @app.route("/agent", methods=["POST"])
@@ -116,12 +146,11 @@ def refresh_training():
 _stt_mode = "lite"
 try:
     from speech.lite_stt import transcribe_wav, transcribe, is_available, get_model_info
-    # Quick sanity check that the module is wired correctly
     _ = transcribe_wav
     _ = get_model_info
-    print(f"[STT] Lite (Google Web Speech API) — ready, no model download needed")
+    logger.info("STT Lite (Google Web Speech API) — ready, no model download needed")
 except Exception as e:
-    print(f"[STT] Lite init failed: {e}")
+    logger.warning("STT Lite init failed: %s", e)
     _stt_mode = "none"
     transcribe_wav = None
 
@@ -131,7 +160,7 @@ try:
     from speech.vosk_stt import init_vosk
     _vosk_ready = init_vosk()
     if _vosk_ready:
-        print(f"[Vosk] Fallback offline STT available")
+        logger.info("Vosk fallback offline STT available")
 except Exception:
     pass
 
@@ -200,12 +229,14 @@ def shutdown_backend():
     token = (request.get_json(silent=True) or {}).get("token", "")
     if token != shutdown_token:
         return jsonify({"error": "invalid token"}), 403
-    print("[JARVIS] Shutdown requested")
-    os._exit(0)
+    logger.info("Shutdown requested — terminating gracefully")
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe_audio():
+    if transcribe_wav is None:
+        return jsonify({"error": "STT not available on this server", "text": ""})
     if "audio" not in request.files:
         return jsonify({"error": "No audio file provided", "text": ""})
     file = request.files["audio"]
@@ -224,6 +255,8 @@ def transcribe_audio():
 
 @app.route("/transcribe/json", methods=["POST"])
 def transcribe_json():
+    if transcribe_wav is None:
+        return jsonify({"error": "STT not available on this server", "text": ""})
     data = request.json or {}
     audio_b64 = data.get("audio", "")
     if not audio_b64:
@@ -281,18 +314,17 @@ def delete_session(session_id):
 
 
 if __name__ == "__main__":
-    print("\n" + "=" * 55)
-    print("  JARVIS BACKEND (Render Edition)")
-    print(f"  Port: {PORT}")
-    print("  Platform: Render Cloud")
-    print("  Agents: Coding | Image | Task | Research")
-    print("           Search | Reasoning | Chat")
-    print(f"  Training: {len(_training_knowledge)} entries")
+    logger.info("=" * 55)
+    logger.info("  JARVIS BACKEND (Render Edition)")
+    logger.info("  Port: %s", PORT)
+    logger.info("  Platform: Render Cloud")
+    logger.info("  Agents: Coding | Image | Task | Research | Search | Reasoning | Chat")
+    logger.info("  Training: %d entries", len(_training_knowledge))
     kb_stats = _kb.stats()
-    print(f"  Knowledge: {kb_stats['total_entries']} entries, {len(kb_stats['entries_by_category'])} categories")
-    stt_status = f"LITE (Google Web Speech)"
+    logger.info("  Knowledge: %d entries, %d categories", kb_stats["total_entries"], len(kb_stats["entries_by_category"]))
+    stt_status = "LITE (Google Web Speech)"
     if _vosk_ready:
         stt_status += " + Vosk fallback"
-    print(f"  STT: {stt_status}")
-    print("=" * 55 + "\n")
+    logger.info("  STT: %s", stt_status)
+    logger.info("=" * 55)
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
