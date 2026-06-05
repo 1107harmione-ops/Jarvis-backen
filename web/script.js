@@ -170,12 +170,13 @@ if (SpeechRecognition) {
         }
     };
     recognition.onend = function() {
+        // Don't restart if speaking or processing
         if (isListening && !isSpeaking) {
             setTimeout(function() {
                 if (isListening && !isSpeaking) {
                     try { recognition.start(); } catch(e) {}
                 }
-            }, 150);
+            }, 300);
         }
     };
     setInterval(function() {
@@ -421,17 +422,26 @@ function executeSingleAndroidTask(task, target) {
 
 function speak(text) {
     isSpeaking = true;
+    // Stop any active recognition before speaking
     if (recognition) {
-        try { recognition.abort(); } catch(e) { recognition.stop(); }
+        try { recognition.abort(); } catch(e) { try { recognition.stop(); } catch(e2) {} }
     }
     let cleaned = text.replace(/https?:\/\/\S+|www\.\S+/gi, '');
     cleaned = cleaned.replace(/[!@#$%^&*()_+{}[\]:";?'<>,.~`|\\/]/g, '');
     cleaned = cleaned.replace(/\s+/g, ' ').trim();
     if (!cleaned) { isSpeaking = false; return; }
+    
+    // Estimate TTS duration: ~100ms per word + 500ms buffer
+    var wordCount = cleaned.split(/\s+/).length;
+    var ttsDuration = Math.max(1500, wordCount * 150 + 500);
+    
     if (typeof Android !== 'undefined' && Android.speak) {
         Android.speak(cleaned);
-        isSpeaking = false;
-        if (isListening) resumeListening(800);
+        // Wait for estimated TTS duration before resuming listening
+        setTimeout(function() {
+            isSpeaking = false;
+            if (isListening) resumeListening(1200);
+        }, ttsDuration);
         return;
     }
     if (window.speechSynthesis) {
@@ -443,12 +453,15 @@ function speak(text) {
         utterance.lang = isHindi ? 'hi-IN' : 'en-US';
         utterance.onend = function() {
             isSpeaking = false;
-            if (isListening) resumeListening(400);
+            if (isListening) resumeListening(600);
+        };
+        utterance.onerror = function() {
+            isSpeaking = false;
         };
         speechSynthesis.speak(utterance);
     } else {
         isSpeaking = false;
-        if (isListening) resumeListening(200);
+        if (isListening) resumeListening(300);
     }
 }
 
@@ -467,12 +480,17 @@ function updateUI(state, text) {
 
 function resumeListening(delayMs) {
     if (!isListening || isSpeaking) return;
-    var d = delayMs || 300;
+    var d = delayMs || 600;
     setTimeout(function() {
         if (!isListening || isSpeaking) return;
+        // For Android native: stop first, then start with proper delay
         if (typeof Android !== 'undefined') {
             try { Android.stopNativeListening(); } catch(e) {}
-            try { Android.startNativeListening(false); } catch(e) {}
+            setTimeout(function() {
+                if (isListening && !isSpeaking) {
+                    try { Android.startNativeListening(false); } catch(e) {}
+                }
+            }, 200);
         } else if (nativeRecognition === false && recognition) {
             try { recognition.start(); } catch(e) {
                 setTimeout(function() { try { recognition.start(); } catch(e2) {} }, 500);

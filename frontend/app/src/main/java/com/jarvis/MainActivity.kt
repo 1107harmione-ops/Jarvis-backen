@@ -1,8 +1,12 @@
 package com.jarvis
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -50,6 +54,24 @@ class MainActivity : ComponentActivity() {
     private val adminClient = AdminClient()
     private var autoListenEnabled = true
     private var healthCheckJob: Job? = null
+    private var audioManager: AudioManager? = null
+    private var isVoiceActive = false
+    private var voiceSchedulePending = false
+
+    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                Log.d(TAG, "Audio focus lost - pausing voice")
+                autoListenEnabled = false
+                ChatState.isListening = false
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                Log.d(TAG, "Audio focus gained")
+                autoListenEnabled = true
+            }
+        }
+    }
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -61,19 +83,24 @@ class MainActivity : ComponentActivity() {
     private val voiceLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        isVoiceActive = false
+        ChatState.isListening = false
+        
         if (result.resultCode == RESULT_OK) {
             val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
             if (!matches.isNullOrEmpty()) {
                 val text = matches[0]
-                ChatState.isListening = false
                 if (handleAdminVoice(text)) {
                     if (autoListenEnabled) scheduleNextVoice()
                     return@registerForActivityResult
                 }
                 wsClient?.sendText(text)
             }
+        } else {
+            // User dismissed or cancelled - still re-trigger if auto mode
+            Log.d(TAG, "Voice input cancelled/dismissed")
         }
-        // Continuous mode: auto-restart listening after result
+        // Continuous mode: auto-restart listening after a cooldown
         if (autoListenEnabled) scheduleNextVoice()
     }
 
@@ -132,6 +159,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         SettingsManager.init(this)
         ProviderManager.init(this)
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         wsClient = WebSocketClient()
         AppState.wsClient = wsClient
         AppState.mainActivity = this
@@ -145,11 +173,25 @@ class MainActivity : ComponentActivity() {
         checkBackendHealth()
     }
 
+    override fun onResume() {
+        super.onResume()
+        autoListenEnabled = true
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Release audio focus when app goes to background
+        autoListenEnabled = false
+        ChatState.isListening = false
+        isVoiceActive = false
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         wsClient?.disconnect()
         healthCheckJob?.cancel()
         autoListenEnabled = false
+        isVoiceActive = false
     }
 
     // ─── Backend Health Check ──────────────────────────────
@@ -196,9 +238,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun scheduleNextVoice() {
+        if (voiceSchedulePending) return
+        voiceSchedulePending = true
         Handler(Looper.getMainLooper()).postDelayed({
-            if (autoListenEnabled) doVoiceInput()
-        }, 600)
+            voiceSchedulePending = false
+            if (autoListenEnabled && !isVoiceActive) {
+                doVoiceInput()
+            }
+        }, 2500)
     }
 
     fun doStartService() {
@@ -223,16 +270,21 @@ class MainActivity : ComponentActivity() {
     }
 
     fun doVoiceInput() {
+        // Guard: don't launch if voice is already active
+        if (isVoiceActive) return
+        
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(this, "Audio permission required", Toast.LENGTH_SHORT).show(); return
         }
         try {
+            isVoiceActive = true
             ChatState.isListening = true
             voiceLauncher.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_PROMPT, "Crystal systems online — speak your command")
             })
         } catch (_: Exception) {
+            isVoiceActive = false
             ChatState.isListening = false
             Toast.makeText(this, "Voice not supported", Toast.LENGTH_SHORT).show()
         }
