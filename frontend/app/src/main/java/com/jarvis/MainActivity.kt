@@ -3,10 +3,14 @@ package com.jarvis
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -40,9 +44,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.google.gson.JsonParser
 import kotlinx.coroutines.*
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.ByteArrayOutputStream
+import java.util.Base64
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -58,7 +67,13 @@ class MainActivity : ComponentActivity() {
     private var isVoiceActive = false
     private var voiceSchedulePending = false
     private var audioPermissionRequested = false
+    private var useAudioFallbackTranscription = false
+    private var fallbackVoiceJob: Job? = null
     private var wakeWindowExpiresAt = 0L
+    private val transcribeClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -88,6 +103,15 @@ class MainActivity : ComponentActivity() {
             val retryDelay = when (error) {
                 SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 1200L
                 SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> 700L
+                SpeechRecognizer.ERROR_AUDIO,
+                SpeechRecognizer.ERROR_CLIENT,
+                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS,
+                SpeechRecognizer.ERROR_NETWORK,
+                SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
+                SpeechRecognizer.ERROR_SERVER -> {
+                    useAudioFallbackTranscription = true
+                    400L
+                }
                 else -> 1800L
             }
             Log.d(TAG, "Speech recognizer error: $error")
@@ -166,6 +190,7 @@ class MainActivity : ComponentActivity() {
     private fun setupSpeechRecognizer() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             Log.w(TAG, "Speech recognition is not available on this device")
+            useAudioFallbackTranscription = true
             return
         }
         speechRecognizer?.destroy()
@@ -293,6 +318,8 @@ class MainActivity : ComponentActivity() {
         isVoiceActive = false
         sleepWakeWindow()
         speechRecognizer?.cancel()
+        fallbackVoiceJob?.cancel()
+        fallbackVoiceJob = null
     }
 
     override fun onDestroy() {
@@ -301,6 +328,8 @@ class MainActivity : ComponentActivity() {
         healthCheckJob?.cancel()
         autoListenEnabled = false
         isVoiceActive = false
+        fallbackVoiceJob?.cancel()
+        fallbackVoiceJob = null
         speechRecognizer?.destroy()
         speechRecognizer = null
     }
@@ -380,13 +409,19 @@ class MainActivity : ComponentActivity() {
         if (isVoiceActive) return
         if (!ensureAudioPermission()) return
 
+        if (useAudioFallbackTranscription) {
+            startFallbackVoiceInput()
+            return
+        }
+
         val recognizer = speechRecognizer ?: run {
             setupSpeechRecognizer()
             speechRecognizer
         }
         val intent = recognitionIntent
         if (recognizer == null || intent == null) {
-            Toast.makeText(this, "Voice recognition not available", Toast.LENGTH_SHORT).show()
+            useAudioFallbackTranscription = true
+            startFallbackVoiceInput()
             return
         }
 
@@ -398,7 +433,196 @@ class MainActivity : ComponentActivity() {
             isVoiceActive = false
             ChatState.isListening = false
             Log.e(TAG, "Voice start failed", e)
-            if (autoListenEnabled) scheduleNextVoice(1500L)
+            useAudioFallbackTranscription = true
+            startFallbackVoiceInput()
+        }
+    }
+
+    private fun startFallbackVoiceInput() {
+        if (isVoiceActive) return
+        if (!ensureAudioPermission()) return
+        if (fallbackVoiceJob?.isActive == true) return
+
+        isVoiceActive = true
+        ChatState.isListening = true
+        fallbackVoiceJob = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            try {
+                val pcmBytes = capturePcmAudio(4500L)
+                if (pcmBytes.isNullOrEmpty()) {
+                    Log.w(TAG, "Fallback capture returned no audio")
+                    return@launch
+                }
+                val wavBytes = pcmToWav(pcmBytes)
+                val transcript = transcribeAudioBytes(wavBytes)
+                withContext(Dispatchers.Main) {
+                    handleFallbackTranscript(transcript)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Fallback voice capture failed", e)
+                withContext(Dispatchers.Main) {
+                    isVoiceActive = false
+                    ChatState.isListening = false
+                    if (autoListenEnabled) scheduleNextVoice(1500L)
+                }
+            } finally {
+                withContext(Dispatchers.Main) {
+                    fallbackVoiceJob = null
+                    isVoiceActive = false
+                    ChatState.isListening = false
+                }
+            }
+        }
+    }
+
+    private fun handleFallbackTranscript(rawTranscript: String) {
+        isVoiceActive = false
+        ChatState.isListening = false
+        val transcript = rawTranscript.trim()
+        if (transcript.isBlank()) {
+            if (autoListenEnabled) scheduleNextVoice(900L)
+            return
+        }
+
+        val wakeCommand = commandAfterWakeWord(transcript)
+        if (wakeCommand != null) {
+            wakeForNextCommand()
+            if (wakeCommand.isBlank()) {
+                ChatState.addSystemMessage("Jarvis awake")
+                Toast.makeText(this, "Listening", Toast.LENGTH_SHORT).show()
+            } else {
+                dispatchVoiceCommand(wakeCommand)
+            }
+        } else if (ChatState.pendingAdminAuth || ChatState.adminMode || isWakeWindowActive()) {
+            dispatchVoiceCommand(transcript)
+        } else {
+            Log.d(TAG, "Ignored fallback speech before wake word: $transcript")
+            ChatState.addLog("Ignored fallback before wake word: $transcript")
+        }
+
+        if (autoListenEnabled) scheduleNextVoice(if (ChatState.isAwake) 700L else 1400L)
+    }
+
+    private suspend fun capturePcmAudio(durationMs: Long): ByteArray? = withContext(Dispatchers.IO) {
+        val sampleRate = 16000
+        val channelConfig = AudioFormat.CHANNEL_IN_MONO
+        val audioFormat = AudioFormat.ENCODING_PCM_16BIT
+        val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+        if (minBufferSize <= 0) return@withContext null
+
+        val bufferSize = maxOf(minBufferSize, sampleRate * 2)
+        val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AudioRecord.Builder()
+                .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+                .setAudioFormat(
+                    android.media.AudioFormat.Builder()
+                        .setSampleRate(sampleRate)
+                        .setEncoding(audioFormat)
+                        .setChannelMask(channelConfig)
+                        .build()
+                )
+                .setBufferSizeInBytes(bufferSize)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                sampleRate,
+                channelConfig,
+                audioFormat,
+                bufferSize
+            )
+        }
+
+        if (recorder.state != AudioRecord.STATE_INITIALIZED) {
+            recorder.release()
+            return@withContext null
+        }
+
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(bufferSize)
+        try {
+            recorder.startRecording()
+            val deadline = SystemClock.elapsedRealtime() + durationMs
+            while (SystemClock.elapsedRealtime() < deadline && isVoiceActive) {
+                val read = recorder.read(buffer, 0, buffer.size)
+                if (read > 0) {
+                    output.write(buffer, 0, read)
+                } else if (read == AudioRecord.ERROR_INVALID_OPERATION || read == AudioRecord.ERROR_BAD_VALUE) {
+                    break
+                }
+            }
+            output.toByteArray()
+        } finally {
+            try { recorder.stop() } catch (_: Exception) {}
+            recorder.release()
+        }
+    }
+
+    private fun pcmToWav(pcmBytes: ByteArray, sampleRate: Int = 16000): ByteArray {
+        val channels = 1
+        val bitsPerSample = 16
+        val byteRate = sampleRate * channels * bitsPerSample / 8
+        val dataSize = pcmBytes.size
+        val output = ByteArrayOutputStream(44 + dataSize)
+
+        fun writeString(value: String) {
+            output.write(value.toByteArray(Charsets.US_ASCII))
+        }
+
+        fun writeIntLE(value: Int) {
+            output.write(value and 0xff)
+            output.write(value shr 8 and 0xff)
+            output.write(value shr 16 and 0xff)
+            output.write(value shr 24 and 0xff)
+        }
+
+        fun writeShortLE(value: Int) {
+            output.write(value and 0xff)
+            output.write(value shr 8 and 0xff)
+        }
+
+        writeString("RIFF")
+        writeIntLE(36 + dataSize)
+        writeString("WAVE")
+        writeString("fmt ")
+        writeIntLE(16)
+        writeShortLE(1)
+        writeShortLE(channels)
+        writeIntLE(sampleRate)
+        writeIntLE(byteRate)
+        writeShortLE(channels * bitsPerSample / 8)
+        writeShortLE(bitsPerSample)
+        writeString("data")
+        writeIntLE(dataSize)
+        output.write(pcmBytes)
+        return output.toByteArray()
+    }
+
+    private suspend fun transcribeAudioBytes(wavBytes: ByteArray): String = withContext(Dispatchers.IO) {
+        if (wavBytes.isEmpty()) return@withContext ""
+        val payload = org.json.JSONObject().apply {
+            put("audio", Base64.getEncoder().encodeToString(wavBytes))
+        }.toString()
+        val base = SettingsManager.getServerHost()
+            .trim()
+            .removeSuffix("/")
+            .replace("wss://", "https://")
+            .replace("ws://", "http://")
+        val port = SettingsManager.getServerPort()
+        val url = if (port == "443" || port == "80") "$base/transcribe/json" else "$base:$port/transcribe/json"
+        val request = Request.Builder()
+            .url(url)
+            .post(payload.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        transcribeClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw java.io.IOException("Transcribe HTTP ${response.code}")
+            }
+            val body = response.body?.string().orEmpty()
+            if (body.isBlank()) return@withContext ""
+            val parsed = JsonParser.parseString(body).asJsonObject
+            parsed.get("text")?.asString.orEmpty()
         }
     }
 
