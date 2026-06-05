@@ -25,7 +25,7 @@ class MicrophoneCapture(private val context: Context) {
                 MediaRecorder()
             }
             recorder?.apply {
-                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                 setAudioSamplingRate(16000)

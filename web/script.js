@@ -509,7 +509,44 @@ function resetState() {
     updateUI('', 'SYSTEM OFFLINE');
 }
 
-function startListening() {
+// ─── Bluetooth Mic Detection ───
+function detectBluetoothMic() {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        return Promise.resolve(false);
+    }
+    return navigator.mediaDevices.enumerateDevices().then(function(devices) {
+        var btDevice = null;
+        devices.forEach(function(d) {
+            if (d.kind !== 'audioinput') return;
+            var label = (d.label || '').toLowerCase();
+            if (label.includes('bluetooth') || label.includes('headset') ||
+                label.includes('hands-free') || label.includes('wireless') ||
+                label.includes('earphone') || label.includes('headphone')) {
+                btDevice = d;
+            }
+        });
+        if (btDevice) {
+            console.log("Bluetooth mic found:", btDevice.label);
+            // Try to open the stream to establish the route
+            return navigator.mediaDevices.getUserMedia({
+                audio: { deviceId: { exact: btDevice.deviceId } }
+            }).then(function(stream) {
+                stream.getTracks().forEach(function(t) { t.stop(); });
+                return true;
+            }).catch(function() {
+                console.log("Bluetooth mic unavailable, using default");
+                return false;
+            });
+        }
+        console.log("No Bluetooth mic found, using default");
+        return false;
+    }).catch(function(e) {
+        console.warn("Could not enumerate devices:", e);
+        return false;
+    });
+}
+
+async function startListening() {
     isListening = true;
     updateUI('listening', 'LISTENING...');
     if (typeof Android !== 'undefined') {
@@ -524,6 +561,10 @@ function startListening() {
         console.warn("Speech recognition not supported");
         return;
     }
+    // Try Bluetooth mic first, fall back to default
+    var btFound = await detectBluetoothMic();
+    btConnected = btFound;
+    if (btFound && statusText) statusText.textContent = 'BT LISTENING...';
     recognition.lang = 'en-US';
     try { recognition.start(); } catch (e) {
         setTimeout(function() { try { recognition.start(); } catch(e2) {} }, 500);
@@ -581,12 +622,12 @@ console.log("JARVIS VOICE ASSISTANT READY");
 
 function speakGreeting() {
     if (typeof Android !== 'undefined' && Android.speak) {
-        Android.speak("Crystal systems online");
+        Android.speak("hello boss");
         return;
     }
     if (window.speechSynthesis) {
         isSpeaking = true;
-        var u = new SpeechSynthesisUtterance("Crystal systems online");
+        var u = new SpeechSynthesisUtterance("hello boss");
         u.rate = 0.7;
         u.pitch = 0.95;
         u.onend = function() { isSpeaking = false; };
