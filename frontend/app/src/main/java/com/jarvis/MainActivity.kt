@@ -74,6 +74,8 @@ class MainActivity : ComponentActivity() {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
+    private var requireWakeWord = false
+    private lateinit var ttsManager: TTSManager
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -100,6 +102,10 @@ class MainActivity : ComponentActivity() {
         override fun onError(error: Int) {
             isVoiceActive = false
             ChatState.isListening = false
+            // Destroy and recreate SpeechRecognizer to prevent freezing
+            speechRecognizer?.destroy()
+            speechRecognizer = null
+            setupSpeechRecognizer()
             val retryDelay = when (error) {
                 SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 1200L
                 SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> 700L
@@ -112,9 +118,9 @@ class MainActivity : ComponentActivity() {
                     useAudioFallbackTranscription = true
                     400L
                 }
-                else -> 1800L
+                else -> 1500L
             }
-            Log.d(TAG, "Speech recognizer error: $error")
+            Log.d(TAG, "Speech recognizer error: $error — recreated, retry in ${retryDelay}ms")
             if (autoListenEnabled) scheduleNextVoice(retryDelay)
         }
 
@@ -210,6 +216,12 @@ class MainActivity : ComponentActivity() {
         val best = matches.firstOrNull()?.trim().orEmpty()
         if (best.isBlank()) return
 
+        // If wake word not required, process all speech directly
+        if (!requireWakeWord) {
+            dispatchVoiceCommand(best)
+            return
+        }
+
         val wakeCommand = matches.asSequence()
             .mapNotNull { commandAfterWakeWord(it) }
             .firstOrNull()
@@ -237,6 +249,8 @@ class MainActivity : ComponentActivity() {
     private fun dispatchVoiceCommand(text: String) {
         val command = text.trim()
         if (command.isBlank()) return
+
+        Log.d(TAG, "VOICE COMMAND = $command")
 
         if (handleAdminVoice(command)) {
             if (!ChatState.pendingAdminAuth) sleepWakeWindow()
@@ -287,6 +301,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         SettingsManager.init(this)
         ProviderManager.init(this)
+        ttsManager = TTSManager(this)
         wsClient = WebSocketClient()
         AppState.wsClient = wsClient
         AppState.mainActivity = this
@@ -295,6 +310,17 @@ class MainActivity : ComponentActivity() {
         setupSpeechRecognizer()
         setContent { JarvisTheme { JarvisApp() } }
         ensureAudioPermission()
+        // TASK 8 — TTS engine check
+        checkTtsEngine()
+    }
+
+    private fun checkTtsEngine() {
+        val checkIntent = Intent()
+        checkIntent.action = TextToSpeech.Engine.ACTION_CHECK_TTS_DATA
+        if (checkIntent.resolveActivity(packageManager) == null) {
+            Log.w(TAG, "No TTS engine found — prompt user to install Google Speech Services")
+            Toast.makeText(this, "Install Google Speech Services for TTS", Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onStart() {
@@ -324,6 +350,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        ttsManager.shutdown()
         wsClient?.disconnect()
         healthCheckJob?.cancel()
         autoListenEnabled = false
@@ -624,6 +651,11 @@ class MainActivity : ComponentActivity() {
             val parsed = JsonParser.parseString(body).asJsonObject
             parsed.get("text")?.asString.orEmpty()
         }
+    }
+
+    fun speak(text: String) {
+        Log.d(TAG, "TTS SPEAK = $text")
+        ttsManager.speak(text)
     }
 
     fun requestPermissions(perms: Array<String>) {
