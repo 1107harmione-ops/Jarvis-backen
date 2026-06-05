@@ -111,16 +111,28 @@ def refresh_training():
     _training_knowledge, _training_sources = load_training_data()
     return jsonify({"status": "success", "training_entries": len(_training_knowledge), "training_sources": len(_training_sources)})
 
+# --- Speech Recognition (Lite / Vosk fallback) ---
+_stt_mode = "lite"
+try:
+    from speech.lite_stt import transcribe_wav, transcribe, is_available, get_model_info
+    # Quick sanity check that the module is wired correctly
+    _ = transcribe_wav
+    _ = get_model_info
+    print(f"[STT] Lite (Google Web Speech API) — ready, no model download needed")
+except Exception as e:
+    print(f"[STT] Lite init failed: {e}")
+    _stt_mode = "none"
+    transcribe_wav = None
+
+# Vosk as optional fallback (no auto-download)
 _vosk_ready = False
 try:
-    from speech.vosk_stt import init_vosk, get_model_info
+    from speech.vosk_stt import init_vosk
     _vosk_ready = init_vosk()
     if _vosk_ready:
-        print(f"[Vosk] STT ready: {get_model_info()['model']}")
-    else:
-        print("[Vosk] Not available (model download will retry on first request)")
-except Exception as e:
-    print(f"[Vosk] Init skipped: {e}")
+        print(f"[Vosk] Fallback offline STT available")
+except Exception:
+    pass
 
 @app.route("/knowledge/search", methods=["POST"])
 def knowledge_search():
@@ -190,10 +202,6 @@ def shutdown_backend():
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe_audio():
-    if not _vosk_ready:
-        from speech.vosk_stt import init_vosk
-        if not init_vosk():
-            return jsonify({"error": "Vosk not available", "text": ""})
     if "audio" not in request.files:
         return jsonify({"error": "No audio file provided", "text": ""})
     file = request.files["audio"]
@@ -201,8 +209,10 @@ def transcribe_audio():
     if not audio_bytes:
         return jsonify({"error": "Empty audio", "text": ""})
     try:
-        from speech.vosk_stt import transcribe_wav
         text = transcribe_wav(audio_bytes)
+        if not text and _vosk_ready:
+            from speech.vosk_stt import transcribe_wav as vosk_transcribe
+            text = vosk_transcribe(audio_bytes)
         return jsonify({"text": text, "error": ""})
     except Exception as e:
         return jsonify({"error": str(e), "text": ""})
@@ -219,13 +229,11 @@ def transcribe_json():
         audio_bytes = base64.b64decode(audio_b64)
     except Exception:
         return jsonify({"error": "Invalid base64", "text": ""})
-    if not _vosk_ready:
-        from speech.vosk_stt import init_vosk
-        if not init_vosk():
-            return jsonify({"error": "Vosk not available", "text": ""})
     try:
-        from speech.vosk_stt import transcribe_wav
         text = transcribe_wav(audio_bytes)
+        if not text and _vosk_ready:
+            from speech.vosk_stt import transcribe_wav as vosk_transcribe
+            text = vosk_transcribe(audio_bytes)
         return jsonify({"text": text, "error": ""})
     except Exception as e:
         return jsonify({"error": str(e), "text": ""})
@@ -233,8 +241,10 @@ def transcribe_json():
 
 @app.route("/transcribe/status", methods=["GET"])
 def transcribe_status():
-    from speech.vosk_stt import is_available, get_model_info
-    return jsonify({"available": is_available(), "model": get_model_info()})
+    from speech.lite_stt import is_available, get_model_info
+    info = get_model_info()
+    info["vosk_available"] = _vosk_ready
+    return jsonify({"available": is_available(), "model": info})
 
 
 @app.route("/memory/save", methods=["POST"])
@@ -276,6 +286,9 @@ if __name__ == "__main__":
     print(f"  Training: {len(_training_knowledge)} entries")
     kb_stats = _kb.stats()
     print(f"  Knowledge: {kb_stats['total_entries']} entries, {len(kb_stats['entries_by_category'])} categories")
-    print(f"  Vosk STT: {'ONLINE' if _vosk_ready else 'OFFLINE (auto-retry on request)'}")
+    stt_status = f"LITE (Google Web Speech)"
+    if _vosk_ready:
+        stt_status += " + Vosk fallback"
+    print(f"  STT: {stt_status}")
     print("=" * 55 + "\n")
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
