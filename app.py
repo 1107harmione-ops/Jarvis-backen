@@ -108,7 +108,8 @@ def get_stats():
 @app.route("/training/refresh", methods=["POST"])
 def refresh_training():
     global _training_knowledge, _training_sources
-_training_knowledge, _training_sources = load_training_data()
+    _training_knowledge, _training_sources = load_training_data()
+    return jsonify({"status": "success", "training_entries": len(_training_knowledge), "training_sources": len(_training_sources)})
 
 _vosk_ready = False
 try:
@@ -120,7 +121,6 @@ try:
         print("[Vosk] Not available (model download will retry on first request)")
 except Exception as e:
     print(f"[Vosk] Init skipped: {e}")
-    return jsonify({"status": "success", "training_entries": len(_training_knowledge), "training_sources": len(_training_sources)})
 
 @app.route("/knowledge/search", methods=["POST"])
 def knowledge_search():
