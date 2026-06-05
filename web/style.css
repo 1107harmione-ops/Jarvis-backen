@@ -14,14 +14,27 @@
 
 body {
     margin: 0;
-    background: #03050c;
+    padding: 0;
+    background: #050201;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    color: #00e5ff;
+    color: #FF6B35;
     display: flex;
     justify-content: center;
     align-items: center;
     height: 100dvh;
     overflow: hidden;
+}
+
+/* ─── Three.js Fusion Background ─── */
+#three-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: -1;
+    pointer-events: none;
+    background: #050201;
 }
 
 .container {
