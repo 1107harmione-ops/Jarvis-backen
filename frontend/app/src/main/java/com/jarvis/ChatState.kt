@@ -67,6 +67,11 @@ object ChatState {
         get() = _isListening.value
         set(v) { _isListening.value = v }
 
+    private val _isAwake = mutableStateOf(false)
+    var isAwake: Boolean
+        get() = _isAwake.value
+        set(v) { _isAwake.value = v }
+
     private const val MAX_LOG = 200
     private const val MAX_MSG = 200
 

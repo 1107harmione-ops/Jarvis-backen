@@ -315,27 +315,127 @@ async function sendToJarvis(message) {
 }
 
 const PKG_MAP = {
-    "youtube": "com.google.android.youtube", "chrome": "com.android.chrome", "whatsapp": "com.whatsapp",
-    "telegram": "org.telegram.messenger", "spotify": "com.spotify.music", "gallery": "com.google.android.apps.photos",
-    "camera": "com.android.camera", "files": "com.google.android.documentsui", "calculator": "com.android.calculator2",
-    "settings": "com.android.settings", "maps": "com.google.android.apps.maps", "gmail": "com.google.android.gm",
-    "clock": "com.google.android.deskclock", "contacts": "com.google.android.contacts", "phone": "com.google.android.dialer",
-    "play store": "com.android.vending", "instagram": "com.instagram.android", "facebook": "com.facebook.katana",
-    "twitter": "com.twitter.android", "linkedin": "com.linkedin.android", "netflix": "com.netflix.mediaclient",
-    "prime video": "com.amazon.avod.thirdpartyclient", "notepad": "com.socialnmobile.dictapps.notepad.color.note",
-    "pubg": "com.pubg.imobile", "bgmi": "com.pubg.imobile", "battleground": "com.pubg.imobile",
-    "battlegrounds": "com.pubg.imobile", "pubg mobile": "com.pubg.imobile", "pubg mobile india": "com.pubg.imobile",
-    "bgmi mobile": "com.pubg.imobile", "cod": "com.activision.callofduty.shooter", "call of duty": "com.activision.callofduty.shooter",
+    // ── Social & Messaging ──
+    "whatsapp": "com.whatsapp", "telegram": "org.telegram.messenger",
+    "telegram x": "org.thunderdog.challegram",
+    "instagram": "com.instagram.android", "facebook": "com.facebook.katana",
+    "messenger": "com.facebook.orca",
+    "twitter": "com.twitter.android", "x": "com.twitter.android",
+    "snapchat": "com.snapchat.android", "snapchat stories": "com.snapchat.android",
+    "discord": "com.discord", "linkedin": "com.linkedin.android",
+    "reddit": "com.reddit.frontpage",
+
+    // ── Browsers & Search ──
+    "chrome": "com.android.chrome", "brave": "com.brave.browser",
+    "browser": "com.android.browser",
+    "google": "com.google.android.googlequicksearchbox",
+    "translate": "com.google.android.apps.translate",
+
+    // ── Google Apps ──
+    "gmail": "com.google.android.gm", "maps": "com.google.android.apps.maps",
+    "drive": "com.google.android.apps.docs", "photos": "com.google.android.apps.photos",
+    "gallery": "com.google.android.apps.photos", "files": "com.google.android.documentsui",
+    "clock": "com.google.android.deskclock", "contacts": "com.google.android.contacts",
+    "phone": "com.google.android.dialer", "settings": "com.android.settings",
+    "play store": "com.android.vending", "youtube": "com.google.android.youtube",
+    "keep notes": "com.google.android.keep", "gemini": "com.google.android.apps.bard",
+    "find my device": "com.google.android.apps.adm",
+    "messages": "com.google.android.apps.messaging",
+
+    // ── Payment / Fintech ──
+    "phonepe": "com.phonepe.app",
+    "gpay": "com.google.android.apps.nbu.paisa.user",
+    "google pay": "com.google.android.apps.nbu.paisa.user",
+    "paytm": "net.one97.paytm", "amazon pay": "in.amazon.mShop.android.shopping",
+    "fampay": "in.fampay.app", "kotak811": "com.kotak811.app",
+    "home credit": "com.homecredit.mobileapp", "greenstash": "com.greenstash.app",
+
+    // ── Shopping ──
+    "amazon": "in.amazon.mShop.android.shopping",
+    "flipkart": "com.flipkart.android",
+    "mi store": "com.mi.android.shop",
+
+    // ── Video / Streaming / Music ──
+    "netflix": "com.netflix.mediaclient",
+    "prime video": "com.amazon.avod.thirdpartyclient",
+    "hotstar": "in.startv.hotstar", "jio cinema": "com.jio.media.jiobeats",
+    "sony liv": "com.sonyliv", "zee5": "com.graymatrix.did",
+    "mx player": "com.mxtech.videoplayer.ad",
+    "vmusic": "com.vmusic.app",
+    "tiktok": "com.zhiliaoapp.musically",
+    "shazam": "com.shazam.android",
+    "spotify": "com.spotify.music",
+
+    // ── Games ──
+    "pubg": "com.pubg.imobile", "bgmi": "com.pubg.imobile",
+    "battleground": "com.pubg.imobile", "battlegrounds": "com.pubg.imobile",
+    "pubg mobile": "com.pubg.imobile", "pubg mobile india": "com.pubg.imobile",
+    "bgmi mobile": "com.pubg.imobile",
+    "cod": "com.activision.callofduty.shooter",
+    "call of duty": "com.activision.callofduty.shooter",
     "free fire": "com.dts.freefireth", "freefire": "com.dts.freefireth",
     "clash of clans": "com.supercell.clashofclans", "coc": "com.supercell.clashofclans",
-    "minecraft": "com.mojang.minecraftpe", "subway surfers": "com.kiloo.subwaysurf",
-    "temple run": "com.imangi.templerun", "snapchat": "com.snapchat.android",
-    "discord": "com.discord", "reddit": "com.reddit.frontpage", "messenger": "com.facebook.orca",
-    "phonepe": "com.phonepe.app", "gpay": "com.google.android.apps.nbu.paisa.user", "google pay": "com.google.android.apps.nbu.paisa.user",
-    "paytm": "net.one97.paytm", "amazon": "in.amazon.mShop.android.shopping", "flipkart": "com.flipkart.android",
-    "swiggy": "in.swiggy.android", "zomato": "com.application.zomato", "uber": "com.ubercab",
-    "ola": "com.olacabs.customer", "hotstar": "in.startv.hotstar", "prime video": "com.amazon.avod.thirdpartyclient",
-    "jio cinema": "com.jio.media.jiobeats", "sony liv": "com.sonyliv", "zee5": "com.graymatrix.did",
+    "minecraft": "com.mojang.minecraftpe",
+    "subway surfers": "com.kiloo.subwaysurf",
+    "temple run": "com.imangi.templerun",
+
+    // ── Productivity & Tools ──
+    "calculator": "com.android.calculator2", "notepad": "com.socialnmobile.dictapps.notepad.color.note",
+    "notes": "com.mi.notes", "recorder": "com.android.recorder",
+    "termux": "com.termux",
+    "github": "com.github.android",
+    "microsoft 365": "com.microsoft.office.officehubrow",
+    "file manager": "com.android.filemanager",
+
+    // ── Telecom / Operator ──
+    "airtel": "com.myairtel.app", "myjio": "com.jio.myjio",
+    "vi app": "com.myvodafone.app",
+    "jiocloud": "com.jio.jiocloud",
+
+    // ── Device / System ──
+    "camera": "com.android.camera", "compass": "com.google.android.compass",
+    "video": "com.android.video", "feedback": "com.android.feedback",
+    "mi remote": "com.duokan.phone.remotecontroller",
+
+    // ── vivo Apps ──
+    "vivo cloud": "com.bbk.cloud", "vivo store": "com.vivo.appstore",
+    "easy share": "com.vivo.easyshare", "easyshare": "com.vivo.easyshare",
+
+    // ── Other ──
+    "digilocker": "com.digilocker.android",
+    "character ai": "ai.character.app",
+    "truecaller": "com.truecaller",
+    "mediafire": "com.mediafire.android",
+    "pyroid 3": "com.pyroid.app",
+    "one health": "com.onehealth.app",
+    "jarvis": "com.jarvis",
+    "feeling": "com.feeling.app",
+    "open": "com.open.app",
+
+    // ── Uber / Ola / Food ──
+    "swiggy": "in.swiggy.android", "zomato": "com.application.zomato",
+    "uber": "com.ubercab", "ola": "com.olacabs.customer",
+
+    // ── MyUZONE (catch-all) ──
+    "myuzone": "com.myuzone.app",
+
+    // ── Aliases / common variations ──
+    "brave browser": "com.brave.browser",
+    "google maps": "com.google.android.apps.maps",
+    "google drive": "com.google.android.apps.docs",
+    "google photos": "com.google.android.apps.photos",
+    "google keep": "com.google.android.keep",
+    "google messages": "com.google.android.apps.messaging",
+    "text messages": "com.google.android.apps.messaging",
+    "file manager": "com.android.filemanager",
+    "character dot ai": "ai.character.app",
+    "character ai": "ai.character.app",
+    "google gemini": "com.google.android.apps.bard",
+    "youtube music": "com.google.android.apps.youtube.music",
+    "google translate": "com.google.android.apps.translate",
+    "google settings": "com.android.settings",
+    "system settings": "com.android.settings",
+    "app settings": "com.android.settings",
 };
 
 const ANDROID_TASK_MAP = {

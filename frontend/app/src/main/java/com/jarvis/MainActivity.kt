@@ -1,18 +1,16 @@
 package com.jarvis
 
 import android.Manifest
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -54,54 +52,64 @@ class MainActivity : ComponentActivity() {
     private val adminClient = AdminClient()
     private var autoListenEnabled = true
     private var healthCheckJob: Job? = null
-    private var audioManager: AudioManager? = null
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var recognitionIntent: Intent? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var isVoiceActive = false
     private var voiceSchedulePending = false
-
-    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
-        when (focusChange) {
-            AudioManager.AUDIOFOCUS_LOSS,
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                Log.d(TAG, "Audio focus lost - pausing voice")
-                autoListenEnabled = false
-                ChatState.isListening = false
-            }
-            AudioManager.AUDIOFOCUS_GAIN -> {
-                Log.d(TAG, "Audio focus gained")
-                autoListenEnabled = true
-            }
-        }
-    }
+    private var audioPermissionRequested = false
+    private var wakeWindowExpiresAt = 0L
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) {
-        val msg = if (it.values.all { v -> v }) "Permissions granted" else "Permissions required"
+    ) { grants ->
+        val audioGranted = grants[Manifest.permission.RECORD_AUDIO] == true || hasAudioPermission()
+        val msg = if (audioGranted) "Microphone ready" else "Microphone permission required"
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        if (audioGranted && autoListenEnabled) scheduleNextVoice(500L)
     }
 
-    private val voiceLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        isVoiceActive = false
-        ChatState.isListening = false
-        
-        if (result.resultCode == RESULT_OK) {
-            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            if (!matches.isNullOrEmpty()) {
-                val text = matches[0]
-                if (handleAdminVoice(text)) {
-                    if (autoListenEnabled) scheduleNextVoice()
-                    return@registerForActivityResult
-                }
-                wsClient?.sendText(text)
-            }
-        } else {
-            // User dismissed or cancelled - still re-trigger if auto mode
-            Log.d(TAG, "Voice input cancelled/dismissed")
+    private val recognitionListener = object : RecognitionListener {
+        override fun onReadyForSpeech(params: Bundle?) {
+            ChatState.isListening = true
         }
-        // Continuous mode: auto-restart listening after a cooldown
-        if (autoListenEnabled) scheduleNextVoice()
+
+        override fun onBeginningOfSpeech() {
+            ChatState.isListening = true
+        }
+
+        override fun onRmsChanged(rmsdB: Float) = Unit
+        override fun onBufferReceived(buffer: ByteArray?) = Unit
+        override fun onEndOfSpeech() = Unit
+
+        override fun onError(error: Int) {
+            isVoiceActive = false
+            ChatState.isListening = false
+            val retryDelay = when (error) {
+                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 1200L
+                SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> 700L
+                else -> 1800L
+            }
+            Log.d(TAG, "Speech recognizer error: $error")
+            if (autoListenEnabled) scheduleNextVoice(retryDelay)
+        }
+
+        override fun onResults(results: Bundle?) {
+            isVoiceActive = false
+            ChatState.isListening = false
+            val matches = results
+                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                ?.filter { it.isNotBlank() }
+                .orEmpty()
+
+            if (matches.isNotEmpty()) {
+                handleRecognizedSpeech(matches)
+            }
+            if (autoListenEnabled) scheduleNextVoice(if (ChatState.isAwake) 700L else 1400L)
+        }
+
+        override fun onPartialResults(partialResults: Bundle?) = Unit
+        override fun onEvent(eventType: Int, params: Bundle?) = Unit
     }
 
     private fun handleAdminVoice(text: String): Boolean {
@@ -155,16 +163,113 @@ class MainActivity : ComponentActivity() {
         return false
     }
 
+    private fun setupSpeechRecognizer() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            Log.w(TAG, "Speech recognition is not available on this device")
+            return
+        }
+        speechRecognizer?.destroy()
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+            setRecognitionListener(recognitionListener)
+        }
+        recognitionIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
+        }
+    }
+
+    private fun handleRecognizedSpeech(matches: List<String>) {
+        val best = matches.firstOrNull()?.trim().orEmpty()
+        if (best.isBlank()) return
+
+        val wakeCommand = matches.asSequence()
+            .mapNotNull { commandAfterWakeWord(it) }
+            .firstOrNull()
+
+        if (wakeCommand != null) {
+            wakeForNextCommand()
+            if (wakeCommand.isBlank()) {
+                ChatState.addSystemMessage("Jarvis awake")
+                Toast.makeText(this, "Listening", Toast.LENGTH_SHORT).show()
+                return
+            }
+            dispatchVoiceCommand(wakeCommand)
+            return
+        }
+
+        if (ChatState.pendingAdminAuth || ChatState.adminMode || isWakeWindowActive()) {
+            dispatchVoiceCommand(best)
+            return
+        }
+
+        Log.d(TAG, "Ignored speech before wake word: $best")
+        ChatState.addLog("Ignored before wake word: $best")
+    }
+
+    private fun dispatchVoiceCommand(text: String) {
+        val command = text.trim()
+        if (command.isBlank()) return
+
+        if (handleAdminVoice(command)) {
+            if (!ChatState.pendingAdminAuth) sleepWakeWindow()
+            return
+        }
+
+        sleepWakeWindow()
+        wsClient?.sendText(command)
+    }
+
+    private fun commandAfterWakeWord(text: String): String? {
+        val match = WAKE_WORD_PATTERN.find(text) ?: return null
+        return text.substring(match.range.last + 1).trim()
+    }
+
+    private fun wakeForNextCommand() {
+        wakeWindowExpiresAt = System.currentTimeMillis() + WAKE_WINDOW_MS
+        ChatState.isAwake = true
+    }
+
+    private fun sleepWakeWindow() {
+        wakeWindowExpiresAt = 0L
+        ChatState.isAwake = false
+    }
+
+    private fun isWakeWindowActive(): Boolean {
+        val active = System.currentTimeMillis() < wakeWindowExpiresAt
+        ChatState.isAwake = active
+        return active
+    }
+
+    private fun hasAudioPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun ensureAudioPermission(): Boolean {
+        if (hasAudioPermission()) return true
+        if (!audioPermissionRequested) {
+            audioPermissionRequested = true
+            requestPermissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+        } else {
+            Toast.makeText(this, "Microphone permission required", Toast.LENGTH_SHORT).show()
+        }
+        return false
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SettingsManager.init(this)
         ProviderManager.init(this)
-        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         wsClient = WebSocketClient()
         AppState.wsClient = wsClient
         AppState.mainActivity = this
         ChatState.isListening = false
+        ChatState.isAwake = false
+        setupSpeechRecognizer()
         setContent { JarvisTheme { JarvisApp() } }
+        ensureAudioPermission()
     }
 
     override fun onStart() {
@@ -176,14 +281,18 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         autoListenEnabled = true
+        if (speechRecognizer == null) setupSpeechRecognizer()
+        scheduleNextVoice(600L)
     }
 
     override fun onPause() {
         super.onPause()
-        // Release audio focus when app goes to background
         autoListenEnabled = false
+        voiceSchedulePending = false
         ChatState.isListening = false
         isVoiceActive = false
+        sleepWakeWindow()
+        speechRecognizer?.cancel()
     }
 
     override fun onDestroy() {
@@ -192,6 +301,8 @@ class MainActivity : ComponentActivity() {
         healthCheckJob?.cancel()
         autoListenEnabled = false
         isVoiceActive = false
+        speechRecognizer?.destroy()
+        speechRecognizer = null
     }
 
     // ─── Backend Health Check ──────────────────────────────
@@ -215,12 +326,7 @@ class MainActivity : ComponentActivity() {
                         Log.d(TAG, "Backend online")
                         withContext(Dispatchers.Main) {
                             ChatState.addSystemMessage("🔌 Crystal backend online")
-                            // Wait for WebSocket to settle, then auto-start voice
-                            if (autoListenEnabled) {
-                                Handler(Looper.getMainLooper()).postDelayed({
-                                    doVoiceInput()
-                                }, 2000)
-                            }
+                            if (autoListenEnabled) scheduleNextVoice(800L)
                         }
                     } else {
                         Log.w(TAG, "Backend health: HTTP ${response.code}")
@@ -238,15 +344,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun scheduleNextVoice() {
+    private fun scheduleNextVoice(delayMs: Long = 2500L) {
         if (voiceSchedulePending) return
         voiceSchedulePending = true
-        Handler(Looper.getMainLooper()).postDelayed({
+        mainHandler.postDelayed({
             voiceSchedulePending = false
             if (autoListenEnabled && !isVoiceActive) {
                 doVoiceInput()
             }
-        }, 2500)
+        }, delayMs)
     }
 
     fun doStartService() {
@@ -271,23 +377,28 @@ class MainActivity : ComponentActivity() {
     }
 
     fun doVoiceInput() {
-        // Guard: don't launch if voice is already active
         if (isVoiceActive) return
-        
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, "Audio permission required", Toast.LENGTH_SHORT).show(); return
+        if (!ensureAudioPermission()) return
+
+        val recognizer = speechRecognizer ?: run {
+            setupSpeechRecognizer()
+            speechRecognizer
         }
+        val intent = recognitionIntent
+        if (recognizer == null || intent == null) {
+            Toast.makeText(this, "Voice recognition not available", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         try {
             isVoiceActive = true
             ChatState.isListening = true
-            voiceLauncher.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Crystal systems online — speak your command")
-            })
-        } catch (_: Exception) {
+            recognizer.startListening(intent)
+        } catch (e: Exception) {
             isVoiceActive = false
             ChatState.isListening = false
-            Toast.makeText(this, "Voice not supported", Toast.LENGTH_SHORT).show()
+            Log.e(TAG, "Voice start failed", e)
+            if (autoListenEnabled) scheduleNextVoice(1500L)
         }
     }
 
@@ -297,6 +408,11 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "JarvisMain"
+        private const val WAKE_WINDOW_MS = 12_000L
+        private val WAKE_WORD_PATTERN = Regex(
+            "^\\s*(?:hey\\s+|ok\\s+|okay\\s+)?(?:jarvis|jervis|javis|jarves)\\b[\\s,!.?-]*",
+            RegexOption.IGNORE_CASE
+        )
     }
 }
 
@@ -380,6 +496,18 @@ fun ChatScreen() {
                             Spacer(Modifier.width(4.dp))
                             Text("LISTENING", fontSize = 10.sp,
                                 color = Color(0xFF00E5FF),
+                                fontWeight = FontWeight.Bold)
+                        }
+                        if (ChatState.isAwake) {
+                            Spacer(Modifier.width(12.dp))
+                            Surface(
+                                modifier = Modifier.size(8.dp),
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF4CAF50)
+                            ) {}
+                            Spacer(Modifier.width(4.dp))
+                            Text("AWAKE", fontSize = 10.sp,
+                                color = Color(0xFF4CAF50),
                                 fontWeight = FontWeight.Bold)
                         }
                     }
