@@ -10,28 +10,6 @@
 <body>
     <div id="three-bg"></div>
     <div class="admin-badge" id="adminBadge" style="display:none;">🛡 ADMIN</div>
-    <div class="hamburger" id="hamburgerBtn">
-        <span></span><span></span><span></span>
-    </div>
-    <div class="sidebar-overlay" id="sidebarOverlay"></div>
-    <div class="sidebar" id="sidebarPanel">
-        <div class="sidebar-header">
-            <span class="sidebar-title">JARVIS</span>
-            <span class="sidebar-close" id="sidebarClose">&times;</span>
-        </div>
-        <div class="sidebar-section">
-            <div class="sidebar-section-title">LAST WORKS</div>
-            <div class="sidebar-list" id="sidebarLastWorks">
-                <div class="sidebar-empty">No recent tasks yet.</div>
-            </div>
-        </div>
-        <div class="sidebar-section">
-            <div class="sidebar-section-title">SESSIONS</div>
-            <div class="sidebar-list" id="sidebarSessions">
-                <div class="sidebar-empty">No sessions yet.</div>
-            </div>
-        </div>
-    </div>
     <div class="container" id="mainContainer">
         <div class="status" id="statusText">SYSTEM IDLE</div>
         <div class="center" id="voiceTrigger">
@@ -47,18 +25,7 @@
             </div>
         </div>
         <div class="hint" id="hintText">TAP THE CRYSTAL TO ACTIVATE</div>
-        <div id="chatLog" class="chat-log">
-            <div id="chatMessages" class="chat-messages"></div>
-            <div class="chat-input-row">
-                <input type="text" id="chatInput" class="chat-input" placeholder="Type a message..." autocomplete="off">
-                <button id="chatSendBtn" class="chat-send-btn">SEND</button>
-            </div>
-        </div>
-        <div id="imageDisplay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); z-index: 100; flex-direction: column; justify-content: center; align-items: center; transition: all 0.5s ease; cursor: pointer;">
-            <img id="generatedImg" src="" style="max-width: 90%; max-height: 80%; border-radius: 12px; border: 2px solid #FF6B35; box-shadow: 0 0 30px #FF6B3555;">
-            <div id="imagePath" style="margin-top: 15px; color: #FF6B35; font-family: 'Space Grotesk', monospace; font-size: 14px; text-shadow: 0 0 10px #FF6B35;"></div>
-            <div style="margin-top: 10px; color: #fff; font-size: 12px;">TAP TO CLOSE</div>
-        </div>
+        <div id="transcriptOverlay" class="transcript-overlay"></div>
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>

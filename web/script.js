@@ -40,25 +40,20 @@ function animate() {
     p.x += p.vx;
     p.y += p.vy;
     p.pulse += p.pulseSpeed;
-    // Wrap around
     if (p.y < -10) { p.y = height + 10; p.x = Math.random() * width; }
     if (p.x < -10) p.x = width + 10;
     if (p.x > width + 10) p.x = -10;
-    // Slight horizontal drift
     p.vx += (Math.random() - 0.5) * 0.02;
     p.vx = Math.max(-0.5, Math.min(0.5, p.vx));
-    // Draw bubble
     const pulseOpacity = p.opacity * (0.7 + 0.3 * Math.sin(p.pulse));
     ctx.fillStyle = `rgba(0, 229, 255, ${pulseOpacity * 0.3})`;
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
     ctx.fill();
-    // Bubble highlight
     ctx.fillStyle = `rgba(255, 255, 255, ${pulseOpacity * 0.2})`;
     ctx.beginPath();
     ctx.arc(p.x - p.size * 0.3, p.y - p.size * 0.3, p.size * 0.4, 0, Math.PI * 2);
     ctx.fill();
-    // Connection lines to nearby particles
     waterParticles.forEach(p2 => {
       const dx = p.x - p2.x;
       const dy = p.y - p2.y;
@@ -77,6 +72,7 @@ function animate() {
   requestAnimationFrame(animate);
 }
 
+// ─── State ───
 let isListening = false;
 let isSpeaking = false;
 let recognition = null;
@@ -86,7 +82,25 @@ let sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2,
 let sessionMsgCount = 0;
 let sessionLastPreview = "";
 
-// Callback for native Android speech recognition results
+// ─── Transcript Overlay ───
+function escapeHtml(str) {
+    var d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+}
+
+function showTranscript(type, text) {
+    var overlay = document.getElementById('transcriptOverlay');
+    if (!overlay) return;
+    var cls = type === 'heard' ? 'line-heard' : type === 'error' ? 'line-error' : 'line-said';
+    var label = type === 'heard' ? 'YOU' : type === 'error' ? 'ERROR' : 'JARVIS';
+    overlay.innerHTML = '<div class="' + cls + '">[' + label + '] ' + escapeHtml(text) + '</div>';
+    overlay.classList.add('visible');
+    if (overlay._fadeTimer) clearTimeout(overlay._fadeTimer);
+    overlay._fadeTimer = setTimeout(function() { overlay.classList.remove('visible'); }, 8000);
+}
+
+// ─── Native Android Speech Bridge ───
 window.__nativeSpeechResult = function(json) {
     try {
         var data = JSON.parse(json);
@@ -111,6 +125,7 @@ window.__voskDownloadCallback = function(success, message) {
     console.log("Vosk download:", success, message);
 };
 
+// ─── Stop Commands ───
 const STOP_WORDS = ["stop", "pause", "wait", "ruko", "shut up", "be quiet", "enough", "that's enough", "chup", "bas karo", "stop talking", "hold on", "quiet", "silence", "that's it", "ruka"];
 
 function isStopCommand(text) {
@@ -130,6 +145,7 @@ function cancelTts() {
     }
 }
 
+// ─── Web Speech Recognition ───
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (SpeechRecognition) {
     recognition = new SpeechRecognition();
@@ -170,7 +186,6 @@ if (SpeechRecognition) {
         }
     };
     recognition.onend = function() {
-        // Don't restart if speaking or processing
         if (isListening && !isSpeaking) {
             setTimeout(function() {
                 if (isListening && !isSpeaking) {
@@ -188,150 +203,68 @@ if (SpeechRecognition) {
     }, 3000);
 }
 
-function appendChat(label, text) {
-    const log = document.getElementById('chatLog');
-    const msgs = document.getElementById('chatMessages');
-    if (!msgs) return;
-    const div = document.createElement('div');
-    div.className = 'chat-msg ' + label;
-    div.innerHTML = '<div class="label">' + label + '</div><div class="text">' + escapeHtml(text) + '</div>';
-    msgs.appendChild(div);
-    log.style.display = 'block';
-    log.scrollTop = log.scrollHeight;
-}
-
-function escapeHtml(str) {
-    const d = document.createElement('div');
-    d.textContent = str;
-    return d.innerHTML;
-}
-
-const hamburgerBtn = document.getElementById("hamburgerBtn");
-const sidebarPanel = document.getElementById("sidebarPanel");
-const sidebarOverlay = document.getElementById("sidebarOverlay");
-const sidebarClose = document.getElementById("sidebarClose");
-
-function toggleSidebar() {
-    const open = sidebarPanel.classList.toggle("open");
-    sidebarOverlay.classList.toggle("active", open);
-}
-
-function closeSidebar() {
-    sidebarPanel.classList.remove("open");
-    sidebarOverlay.classList.remove("active");
-}
-
-if (hamburgerBtn) hamburgerBtn.addEventListener("click", toggleSidebar);
-if (sidebarClose) sidebarClose.addEventListener("click", closeSidebar);
-if (sidebarOverlay) sidebarOverlay.addEventListener("click", closeSidebar);
-
-function updateSidebarHistory(text, label) {
-    const list = document.getElementById("sidebarLastWorks");
-    if (!list) return;
-    const empty = list.querySelector(".sidebar-empty");
-    if (empty) empty.remove();
-    const item = document.createElement("div");
-    item.className = "sidebar-item";
-    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    item.innerHTML = `<div class="item-label">${label}</div><div>${escapeHtml(text.slice(0, 60))}</div><div class="item-time">${time}</div>`;
-    list.insertBefore(item, list.firstChild);
-    if (list.children.length > 10) list.lastChild.remove();
-}
-
-function updateSidebarSessions(text) {
-    const list = document.getElementById("sidebarSessions");
-    if (!list) return;
-    const empty = list.querySelector(".sidebar-empty");
-    if (empty) empty.remove();
-    const item = document.createElement("div");
-    item.className = "sidebar-item";
-    const time = new Date().toLocaleDateString([], { month: 'short', day: 'numeric' }) + " " + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    item.innerHTML = `<div class="item-label">session</div><div>${escapeHtml(text.slice(0, 80))}</div><div class="item-time">${time}</div>`;
-    list.insertBefore(item, list.firstChild);
-    if (list.children.length > 20) list.lastChild.remove();
-}
-
+// ─── Core: Send to Jarvis (voice-first) ───
 async function sendToJarvis(message) {
     if (isStopCommand(message)) {
         cancelTts();
-        appendChat('user', message);
-        appendChat('assistant', 'Stopped.');
-        updateUI('', 'SYSTEM ONLINE');
-        if (isListening) startListening();
+        showTranscript('error', 'Stopped');
+        updateUI('', 'READY');
         return;
     }
-    appendChat('user', message);
-    updateSidebarHistory(message, 'user');
-    updateSidebarSessions('You: ' + message);
-    sessionLastPreview = 'You: ' + message;
+    showTranscript('heard', message);
     sessionMsgCount++;
-    saveMemory();
+    sessionLastPreview = 'You: ' + message;
     updateUI('processing', 'WORKING...');
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(function() { controller.abort(); }, 15000);
     try {
         const response = await fetch('/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message, session_id: sessionId }),
+            body: JSON.stringify({ message: message, session_id: sessionId }),
             signal: controller.signal
         });
         clearTimeout(timeoutId);
         const data = await response.json();
         if (data.reply) {
-            appendChat('assistant', data.reply);
-            updateSidebarHistory(data.reply, 'jarvis');
+            showTranscript('said', data.reply);
             sessionLastPreview = 'Jarvis: ' + data.reply;
             sessionMsgCount++;
-            updateUI('', 'SYSTEM ONLINE');
+            updateUI('', 'READY');
             speak(data.reply);
             executeAndroidTask(data);
-        }
-        if (data.image_url) {
-            const display = document.getElementById("imageDisplay");
-            const img = document.getElementById("generatedImg");
-            const path = document.getElementById("imagePath");
-            img.src = data.image_url;
-            if (data.filepath) path.textContent = data.filepath;
-            display.style.display = 'flex';
         } else if (data.error) {
-            appendChat('assistant', 'Error: ' + data.error);
+            showTranscript('error', data.error);
             updateUI('', 'NEURAL ERROR');
             speak("I encountered a neural link error.");
         }
     } catch (error) {
         clearTimeout(timeoutId);
-        console.error("API Error:", error);
         if (error.name === 'AbortError') {
-            appendChat('assistant', 'Request timed out.');
+            showTranscript('error', 'Request timed out');
             updateUI('', 'TIMEOUT');
             speak("The cognitive link timed out.");
         } else {
-            appendChat('assistant', 'Connection error: ' + error.message);
+            showTranscript('error', 'Connection lost');
             updateUI('', 'OFFLINE');
             speak("Connection to core server lost.");
         }
     }
 }
 
+// ─── Android App Package Map ───
 const PKG_MAP = {
-    // ── Social & Messaging ──
     "whatsapp": "com.whatsapp", "telegram": "org.telegram.messenger",
     "telegram x": "org.thunderdog.challegram",
     "instagram": "com.instagram.android", "facebook": "com.facebook.katana",
     "messenger": "com.facebook.orca",
     "twitter": "com.twitter.android", "x": "com.twitter.android",
-    "snapchat": "com.snapchat.android", "snapchat stories": "com.snapchat.android",
-    "discord": "com.discord", "linkedin": "com.linkedin.android",
-    "reddit": "com.reddit.frontpage",
-
-    // ── Browsers & Search ──
+    "snapchat": "com.snapchat.android", "discord": "com.discord",
+    "linkedin": "com.linkedin.android", "reddit": "com.reddit.frontpage",
     "chrome": "com.android.chrome", "brave": "com.brave.browser",
     "browser": "com.android.browser",
     "google": "com.google.android.googlequicksearchbox",
     "translate": "com.google.android.apps.translate",
-
-    // ── Google Apps ──
     "gmail": "com.google.android.gm", "maps": "com.google.android.apps.maps",
     "drive": "com.google.android.apps.docs", "photos": "com.google.android.apps.photos",
     "gallery": "com.google.android.apps.photos", "files": "com.google.android.documentsui",
@@ -341,21 +274,15 @@ const PKG_MAP = {
     "keep notes": "com.google.android.keep", "gemini": "com.google.android.apps.bard",
     "find my device": "com.google.android.apps.adm",
     "messages": "com.google.android.apps.messaging",
-
-    // ── Payment / Fintech ──
     "phonepe": "com.phonepe.app",
     "gpay": "com.google.android.apps.nbu.paisa.user",
     "google pay": "com.google.android.apps.nbu.paisa.user",
     "paytm": "net.one97.paytm", "amazon pay": "in.amazon.mShop.android.shopping",
     "fampay": "in.fampay.app", "kotak811": "com.kotak811.app",
     "home credit": "com.homecredit.mobileapp", "greenstash": "com.greenstash.app",
-
-    // ── Shopping ──
     "amazon": "in.amazon.mShop.android.shopping",
     "flipkart": "com.flipkart.android",
     "mi store": "com.mi.android.shop",
-
-    // ── Video / Streaming / Music ──
     "netflix": "com.netflix.mediaclient",
     "prime video": "com.amazon.avod.thirdpartyclient",
     "hotstar": "in.startv.hotstar", "jio cinema": "com.jio.media.jiobeats",
@@ -365,8 +292,6 @@ const PKG_MAP = {
     "tiktok": "com.zhiliaoapp.musically",
     "shazam": "com.shazam.android",
     "spotify": "com.spotify.music",
-
-    // ── Games ──
     "pubg": "com.pubg.imobile", "bgmi": "com.pubg.imobile",
     "battleground": "com.pubg.imobile", "battlegrounds": "com.pubg.imobile",
     "pubg mobile": "com.pubg.imobile", "pubg mobile india": "com.pubg.imobile",
@@ -378,30 +303,21 @@ const PKG_MAP = {
     "minecraft": "com.mojang.minecraftpe",
     "subway surfers": "com.kiloo.subwaysurf",
     "temple run": "com.imangi.templerun",
-
-    // ── Productivity & Tools ──
-    "calculator": "com.android.calculator2", "notepad": "com.socialnmobile.dictapps.notepad.color.note",
+    "calculator": "com.android.calculator2",
+    "notepad": "com.socialnmobile.dictapps.notepad.color.note",
     "notes": "com.mi.notes", "recorder": "com.android.recorder",
     "termux": "com.termux",
     "github": "com.github.android",
     "microsoft 365": "com.microsoft.office.officehubrow",
     "file manager": "com.android.filemanager",
-
-    // ── Telecom / Operator ──
     "airtel": "com.myairtel.app", "myjio": "com.jio.myjio",
     "vi app": "com.myvodafone.app",
     "jiocloud": "com.jio.jiocloud",
-
-    // ── Device / System ──
     "camera": "com.android.camera", "compass": "com.google.android.compass",
     "video": "com.android.video", "feedback": "com.android.feedback",
     "mi remote": "com.duokan.phone.remotecontroller",
-
-    // ── vivo Apps ──
     "vivo cloud": "com.bbk.cloud", "vivo store": "com.vivo.appstore",
     "easy share": "com.vivo.easyshare", "easyshare": "com.vivo.easyshare",
-
-    // ── Other ──
     "digilocker": "com.digilocker.android",
     "character ai": "ai.character.app",
     "truecaller": "com.truecaller",
@@ -411,15 +327,9 @@ const PKG_MAP = {
     "jarvis": "com.jarvis",
     "feeling": "com.feeling.app",
     "open": "com.open.app",
-
-    // ── Uber / Ola / Food ──
     "swiggy": "in.swiggy.android", "zomato": "com.application.zomato",
     "uber": "com.ubercab", "ola": "com.olacabs.customer",
-
-    // ── MyUZONE (catch-all) ──
     "myuzone": "com.myuzone.app",
-
-    // ── Aliases / common variations ──
     "brave browser": "com.brave.browser",
     "google maps": "com.google.android.apps.maps",
     "google drive": "com.google.android.apps.docs",
@@ -427,9 +337,7 @@ const PKG_MAP = {
     "google keep": "com.google.android.keep",
     "google messages": "com.google.android.apps.messaging",
     "text messages": "com.google.android.apps.messaging",
-    "file manager": "com.android.filemanager",
     "character dot ai": "ai.character.app",
-    "character ai": "ai.character.app",
     "google gemini": "com.google.android.apps.bard",
     "youtube music": "com.google.android.apps.youtube.music",
     "google translate": "com.google.android.apps.translate",
@@ -452,16 +360,12 @@ const ANDROID_TASK_MAP = {
 
 function executeAndroidTask(data) {
     if (typeof Android === 'undefined') return;
-
-    // Handle compound execution (multiple tasks chained)
     if (data.compound_execution && Array.isArray(data.compound_execution)) {
-        console.log("[Android] Compound execution:", data.compound_execution);
         data.compound_execution.forEach(function(item) {
             executeSingleAndroidTask(item.task, item.target);
         });
         return;
     }
-
     executeSingleAndroidTask(data.task, data.target);
 }
 
@@ -474,10 +378,7 @@ function executeSingleAndroidTask(task, target) {
             const key = (target || "").toLowerCase().trim();
             let pkg = PKG_MAP[key];
             if (!pkg) pkg = target;
-            if (pkg && Android[bridgeFn]) {
-                console.log(`[Android] ${bridgeFn}: ${pkg}`);
-                Android[bridgeFn](pkg);
-            }
+            if (pkg && Android[bridgeFn]) Android[bridgeFn](pkg);
         } else if (task === "toggle_wifi") {
             if (Android[bridgeFn]) Android[bridgeFn](target === "on" || target === "enable");
         } else if (task === "toggle_bluetooth") {
@@ -487,10 +388,10 @@ function executeSingleAndroidTask(task, target) {
         } else if (task === "control_volume") {
             if (Android[bridgeFn]) Android[bridgeFn](target === "up" ? 1 : target === "down" ? -1 : target === "mute" ? -100 : 0);
         } else if (task === "play_yt") {
-            const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(target || "")}`;
+            var url = "https://www.youtube.com/results?search_query=" + encodeURIComponent(target || "");
             if (Android && Android.openUrl) Android.openUrl(url);
         } else if (task === "media_control") {
-            const cmd = (target || "play").toLowerCase();
+            var cmd = (target || "play").toLowerCase();
             if (cmd === "next" && Android.mediaNext) Android.mediaNext();
             else if (cmd === "previous" && Android.mediaPrev) Android.mediaPrev();
             else if (Android.mediaPlay) Android.mediaPlay();
@@ -499,48 +400,35 @@ function executeSingleAndroidTask(task, target) {
         } else if (task === "call_contact" || task === "make_call") {
             var name = (target || "").trim();
             if (!name) return;
-            // Try contact-aware dialer (needs APK bridge: Android.callByName)
-            if (Android.callByName) {
-                console.log("[Android] callByName: " + name);
-                Android.callByName(name);
-            } else {
-                // Fallback: open dialer with name as search
-                var url = "tel:" + encodeURIComponent(name);
-                if (Android.openUrl) Android.openUrl(url);
-            }
+            if (Android.callByName) Android.callByName(name);
+            else if (Android.openUrl) Android.openUrl("tel:" + encodeURIComponent(name));
         } else if (task === "open_website") {
             if (target && Android.openUrl) Android.openUrl(target);
         } else if (task === "send_whatsapp") {
-            const msg = encodeURIComponent(target || "");
-            const url = `https://wa.me/?text=${msg}`;
-            if (Android.openUrl) Android.openUrl(url);
+            var msg = encodeURIComponent(target || "");
+            if (Android.openUrl) Android.openUrl("https://wa.me/?text=" + msg);
         }
     } catch (e) {
         console.error("[Android bridge error]", e);
     }
 }
 
+// ─── Speak (TTS) ───
 function speak(text) {
-    // Guard: if already speaking, cancel previous speech cleanly
     if (isSpeaking) {
         if (window.speechSynthesis) window.speechSynthesis.cancel();
         if (typeof Android !== 'undefined' && Android.stopTts) Android.stopTts();
-        // Let the previous cleanup complete
     }
     isSpeaking = true;
-    // Stop any active recognition before speaking
     if (recognition) {
         try { recognition.abort(); } catch(e) { try { recognition.stop(); } catch(e2) {} }
     }
-    let cleaned = text.replace(/https?:\/\/\S+|www\.\S+/gi, '');
+    var cleaned = text.replace(/https?:\/\/\S+|www\.\S+/gi, '');
     cleaned = cleaned.replace(/[!@#$%^&*()_+{}[\]:";?'<>,.~`|\\/]/g, '');
     cleaned = cleaned.replace(/\s+/g, ' ').trim();
     if (!cleaned) { isSpeaking = false; return; }
-    
-    // Estimate TTS duration: ~80ms per character at rate 0.7
     var charCount = cleaned.length;
     var ttsDuration = Math.max(2000, charCount * 80 + 600);
-    
     if (typeof Android !== 'undefined' && Android.speak) {
         Android.speak(cleaned);
         setTimeout(function() {
@@ -551,18 +439,15 @@ function speak(text) {
     }
     if (window.speechSynthesis) {
         speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(cleaned);
+        var utterance = new SpeechSynthesisUtterance(cleaned);
         utterance.rate = 0.7;
         utterance.pitch = 0.95;
-        const isHindi = /[\u0900-\u097F]/.test(cleaned);
+        var isHindi = /[\u0900-\u097F]/.test(cleaned);
         utterance.lang = isHindi ? 'hi-IN' : 'en-US';
-        
-        // Safety timeout: if onend/onerror never fire, force cleanup
         var safetyTimer = setTimeout(function() {
             isSpeaking = false;
             if (isListening) resumeListening(600);
         }, ttsDuration);
-        
         utterance.onend = function() {
             clearTimeout(safetyTimer);
             isSpeaking = false;
@@ -580,6 +465,7 @@ function speak(text) {
     }
 }
 
+// ─── UI State ───
 function updateUI(state, text) {
     if (statusText) statusText.textContent = text;
     if (voiceTrigger) voiceTrigger.className = 'center ' + state;
@@ -593,12 +479,12 @@ function updateUI(state, text) {
     }
 }
 
+// ─── Voice Lifecycle ───
 function resumeListening(delayMs) {
     if (!isListening || isSpeaking) return;
     var d = delayMs || 600;
     setTimeout(function() {
         if (!isListening || isSpeaking) return;
-        // For Android native: stop first, then start with proper delay
         if (typeof Android !== 'undefined') {
             try { Android.stopNativeListening(); } catch(e) {}
             setTimeout(function() {
@@ -623,29 +509,19 @@ function resetState() {
     updateUI('', 'SYSTEM OFFLINE');
 }
 
-function restartNativeListening() {
-    if (!isListening || isSpeaking || typeof Android === 'undefined') return;
-    if (nativeRecognition) {
-        try { Android.startNativeListening(false); } catch(e) {}
-    }
-}
-
 function startListening() {
     isListening = true;
     updateUI('listening', 'LISTENING...');
-
     if (typeof Android !== 'undefined') {
         nativeRecognition = true;
         try { btConnected = Android.isBluetoothConnected(); } catch(e) { btConnected = false; }
-        console.log("Bluetooth headset:", btConnected);
         try { Android.stopNativeListening(); } catch(e) {}
         try { Android.startNativeListening(false); } catch(e) { console.error("Native listen start fail:", e); }
         return;
     }
-
     nativeRecognition = false;
     if (!recognition) {
-        alert("Speech recognition not supported. Please use Chrome.");
+        console.warn("Speech recognition not supported");
         return;
     }
     recognition.lang = 'en-US';
@@ -654,7 +530,7 @@ function startListening() {
     }
 }
 
-// ─── Admin Voice Routing ────────────────────────────
+// ─── Admin Voice Routing ───
 function routeAdminVoice(text) {
     if (typeof isAdminTrigger === 'undefined') return false;
     if (adminWaitingForPassword) {
@@ -670,7 +546,7 @@ function routeAdminVoice(text) {
         adminMode = false;
         adminToken = null;
         closeAdminPanel();
-        appendChat('assistant', '🔒 Admin session closed.');
+        showTranscript('error', 'Admin session closed.');
         speak('Admin session closed.');
         return true;
     }
@@ -682,36 +558,7 @@ function routeAdminVoice(text) {
 
 voiceTrigger.addEventListener('click', function() { startListening(); });
 
-const chatInput = document.getElementById('chatInput');
-const chatSendBtn = document.getElementById('chatSendBtn');
-
-function sendTextMessage() {
-    const text = chatInput.value.trim();
-    if (!text) return;
-    chatInput.value = '';
-    if (routeAdminVoice(text)) return;
-    sendToJarvis(text);
-}
-
-chatSendBtn.addEventListener('click', sendTextMessage);
-chatInput.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') sendTextMessage();
-});
-
-const imageDisplay = document.getElementById("imageDisplay");
-if (imageDisplay) {
-    imageDisplay.addEventListener("click", function() {
-        this.style.display = "none";
-        const img = document.getElementById("generatedImg");
-        if (img) img.src = "";
-    });
-}
-
-animate();
-updateUI('', 'SYSTEM ONLINE');
-console.log("JARVIS UI READY");
-
-// Auto-save memory every 20 seconds
+// ─── Memory ───
 function saveMemory() {
     if (!sessionMsgCount && !sessionLastPreview) return;
     fetch('/memory/save', {
@@ -727,95 +574,10 @@ function saveMemory() {
 
 setInterval(saveMemory, 20000);
 
-// Load sessions from backend
-function loadSessions() {
-    fetch('/sessions')
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            const list = document.getElementById("sidebarSessions");
-            if (!list) return;
-            const sessions = data.sessions || [];
-            list.innerHTML = '';
-            if (sessions.length === 0) {
-                list.innerHTML = '<div class="sidebar-empty">No sessions yet.</div>';
-                return;
-            }
-            sessions.forEach(function(s) {
-                const item = document.createElement("div");
-                item.className = "sidebar-item";
-                item.style.cursor = "pointer";
-                const date = new Date(s.updated_at || s.created_at);
-                const timeStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                const preview = s.last_preview || s.name || 'Session ' + s.id.slice(0, 8);
-                item.innerHTML = '<div class="item-label">' + s.message_count + ' msgs</div><div>' + escapeHtml(preview.slice(0, 80)) + '</div><div class="item-time">' + timeStr + '</div>';
-                item.addEventListener('click', function() {
-                    closeSidebar();
-                    loadSessionMessages(s.id);
-                });
-                list.appendChild(item);
-            });
-        })
-        .catch(function() {});
-}
-
-// Load messages from a specific session
-function loadSessionMessages(sessionId) {
-    fetch('/sessions/' + encodeURIComponent(sessionId))
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            const msgs = document.getElementById('chatMessages');
-            const log = document.getElementById('chatLog');
-            if (!msgs) return;
-            msgs.innerHTML = '';
-            (data.messages || []).forEach(function(m) {
-                const div = document.createElement('div');
-                div.className = 'chat-msg ' + m.role;
-                div.innerHTML = '<div class="label">' + m.role + '</div><div class="text">' + escapeHtml(m.content) + '</div>';
-                msgs.appendChild(div);
-            });
-            log.style.display = 'block';
-            log.scrollTop = log.scrollHeight;
-        })
-        .catch(function() {});
-}
-
-// Override updateSidebarSessions to load from backend instead
-function updateSidebarSessions(text) {
-    // Only loads from /sessions endpoint now
-}
-
-// Override toggleSidebar to refresh sessions on open
-const origToggle = toggleSidebar;
-toggleSidebar = function() {
-    const open = sidebarPanel.classList.toggle("open");
-    sidebarOverlay.classList.toggle("active", open);
-    if (open) loadSessions();
-};
-
-// ─── Backend Health Check ───────────────────────────────
-function checkBackendHealth(retries) {
-    retries = retries || 0;
-    if (retries > 3) {
-        console.warn("Backend health check failed after 3 retries");
-        startupListening();
-        return;
-    }
-    fetch('/health')
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            console.log("Backend online:", data);
-            appendChat('system', '🔌 Backend connected');
-            // Start listening after health check passes
-            setTimeout(function() {
-                startupListening();
-                speakGreeting();
-            }, 500);
-        })
-        .catch(function(err) {
-            console.warn("Health check attempt " + (retries + 1) + " failed:", err);
-            setTimeout(function() { checkBackendHealth(retries + 1); }, 2000);
-        });
-}
+// ─── Startup ───
+animate();
+updateUI('', 'SYSTEM ONLINE');
+console.log("JARVIS VOICE ASSISTANT READY");
 
 function speakGreeting() {
     if (typeof Android !== 'undefined' && Android.speak) {
@@ -833,7 +595,6 @@ function speakGreeting() {
     }
 }
 
-// Retry startup until listening is confirmed or Android bridge is ready
 function startupListening(attempts) {
     attempts = attempts || 0;
     if (attempts > 5) { console.warn("Startup listening failed after 5 retries"); return; }
@@ -849,9 +610,27 @@ function startupListening(attempts) {
     setTimeout(function() { startupListening(attempts + 1); }, 1000);
 }
 
+function checkBackendHealth(retries) {
+    retries = retries || 0;
+    if (retries > 3) {
+        console.warn("Backend health check failed after 3 retries");
+        startupListening();
+        return;
+    }
+    fetch('/health')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            console.log("Backend online:", data);
+            setTimeout(function() {
+                startupListening();
+                speakGreeting();
+            }, 500);
+        })
+        .catch(function(err) {
+            console.warn("Health check attempt " + (retries + 1) + " failed:", err);
+            setTimeout(function() { checkBackendHealth(retries + 1); }, 2000);
+        });
+}
+
 // Auto-start on page load
-setTimeout(function() {
-    var log = document.getElementById('chatLog');
-    if (log) log.style.display = 'block';
-    checkBackendHealth();
-}, 800);
+setTimeout(function() { checkBackendHealth(); }, 800);
