@@ -315,6 +315,14 @@ canvas {
     align-self: flex-start;
 }
 
+.chat-msg.system {
+    background: rgba(105, 240, 174, 0.06);
+    color: #69f0ae;
+    border-left: 2px solid #69f0ae;
+    align-self: flex-start;
+    font-size: 11px;
+}
+
 .chat-msg .label {
     font-size: 10px;
     text-transform: uppercase;

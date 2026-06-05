@@ -5,8 +5,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.speech.RecognizerIntent
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -35,13 +38,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     private var wsClient: WebSocketClient? = null
     private val adminClient = AdminClient()
+    private var autoListenEnabled = true
+    private var healthCheckJob: Job? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -57,10 +65,16 @@ class MainActivity : ComponentActivity() {
             val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
             if (!matches.isNullOrEmpty()) {
                 val text = matches[0]
-                if (handleAdminVoice(text)) return@registerForActivityResult
+                ChatState.isListening = false
+                if (handleAdminVoice(text)) {
+                    if (autoListenEnabled) scheduleNextVoice()
+                    return@registerForActivityResult
+                }
                 wsClient?.sendText(text)
             }
         }
+        // Continuous mode: auto-restart listening after result
+        if (autoListenEnabled) scheduleNextVoice()
     }
 
     private fun handleAdminVoice(text: String): Boolean {
@@ -121,17 +135,70 @@ class MainActivity : ComponentActivity() {
         wsClient = WebSocketClient()
         AppState.wsClient = wsClient
         AppState.mainActivity = this
+        ChatState.isListening = false
         setContent { JarvisTheme { JarvisApp() } }
     }
 
     override fun onStart() {
         super.onStart()
         wsClient?.connect(SettingsManager.getWsUrl())
+        checkBackendHealth()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         wsClient?.disconnect()
+        healthCheckJob?.cancel()
+        autoListenEnabled = false
+    }
+
+    // ─── Backend Health Check ──────────────────────────────
+    private fun checkBackendHealth() {
+        healthCheckJob?.cancel()
+        healthCheckJob = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            try {
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(5, TimeUnit.SECONDS)
+                    .readTimeout(5, TimeUnit.SECONDS)
+                    .build()
+                val host = SettingsManager.getServerHost()
+                    .replace("wss://", "https://")
+                    .replace("ws://", "http://")
+                val port = SettingsManager.getServerPort()
+                val healthUrl = if (port == "443" || port == "80") "$host/health" else "$host:$port/health"
+                Log.d(TAG, "Health check: $healthUrl")
+                val request = Request.Builder().url(healthUrl).build()
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    Log.d(TAG, "Backend online")
+                    withContext(Dispatchers.Main) {
+                        ChatState.addSystemMessage("🔌 Crystal backend online")
+                        // Wait for WebSocket to settle, then auto-start voice
+                        if (autoListenEnabled) {
+                            Handler(Looper.getMainLooper()).postDelayed({
+                                doVoiceInput()
+                            }, 2000)
+                        }
+                    }
+                } else {
+                    Log.w(TAG, "Backend health: HTTP ${response.code}")
+                    withContext(Dispatchers.Main) {
+                        ChatState.addSystemMessage("⚠️ Backend error: HTTP ${response.code}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Health check failed", e)
+                withContext(Dispatchers.Main) {
+                    ChatState.addSystemMessage("❌ Cannot reach backend")
+                }
+            }
+        }
+    }
+
+    private fun scheduleNextVoice() {
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (autoListenEnabled) doVoiceInput()
+        }, 600)
     }
 
     fun doStartService() {
@@ -160,17 +227,23 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Audio permission required", Toast.LENGTH_SHORT).show(); return
         }
         try {
+            ChatState.isListening = true
             voiceLauncher.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your command")
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Crystal systems online — speak your command")
             })
         } catch (_: Exception) {
+            ChatState.isListening = false
             Toast.makeText(this, "Voice not supported", Toast.LENGTH_SHORT).show()
         }
     }
 
     fun requestPermissions(perms: Array<String>) {
         requestPermissionLauncher.launch(perms)
+    }
+
+    companion object {
+        private const val TAG = "JarvisMain"
     }
 }
 
@@ -229,6 +302,7 @@ fun ChatScreen() {
                 Column {
                     Text("J.A.R.V.I.S.", fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Connection indicator
                         Surface(
                             modifier = Modifier.size(8.dp),
                             shape = RoundedCornerShape(4.dp),
@@ -242,6 +316,19 @@ fun ChatScreen() {
                         Spacer(Modifier.width(6.dp))
                         Text(connectionStatus, fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        // Listening indicator
+                        if (ChatState.isListening) {
+                            Spacer(Modifier.width(12.dp))
+                            Surface(
+                                modifier = Modifier.size(8.dp),
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF00E5FF)
+                            ) {}
+                            Spacer(Modifier.width(4.dp))
+                            Text("LISTENING", fontSize = 10.sp,
+                                color = Color(0xFF00E5FF),
+                                fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
                 FilledTonalButton(onClick = { activity?.doVoiceInput() }, modifier = Modifier.size(40.dp)) {

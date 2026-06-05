@@ -767,6 +767,42 @@ function animateSolarSystem() {
 
 animateSolarSystem();
 
+// ─── Backend Health Check ───────────────────────────────
+function checkBackendHealth(retries) {
+    retries = retries || 0;
+    if (retries > 3) {
+        console.warn("Backend health check failed after 3 retries");
+        startupListening();
+        return;
+    }
+    fetch('/health')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            console.log("Backend online:", data);
+            appendChat('system', '🔌 Backend connected');
+            // Start listening after health check passes
+            setTimeout(function() {
+                startupListening();
+                speakGreeting();
+            }, 500);
+        })
+        .catch(function(err) {
+            console.warn("Health check attempt " + (retries + 1) + " failed:", err);
+            setTimeout(function() { checkBackendHealth(retries + 1); }, 2000);
+        });
+}
+
+function speakGreeting() {
+    if (typeof Android !== 'undefined' && Android.speak) {
+        Android.speak("Crystal systems online");
+    } else if (window.speechSynthesis) {
+        var u = new SpeechSynthesisUtterance("Crystal systems online");
+        u.rate = 0.7;
+        u.pitch = 0.95;
+        speechSynthesis.speak(u);
+    }
+}
+
 // Retry startup until listening is confirmed or Android bridge is ready
 function startupListening(attempts) {
     attempts = attempts || 0;
@@ -783,16 +819,9 @@ function startupListening(attempts) {
     setTimeout(function() { startupListening(attempts + 1); }, 1000);
 }
 
+// Auto-start on page load
 setTimeout(function() {
     var log = document.getElementById('chatLog');
     if (log) log.style.display = 'block';
-    startupListening();
-    if (typeof Android !== 'undefined' && Android.speak) {
-        Android.speak("Crystal systems online");
-    } else if (window.speechSynthesis) {
-        var u = new SpeechSynthesisUtterance("Crystal systems online");
-        u.rate = 0.7;
-        u.pitch = 0.95;
-        speechSynthesis.speak(u);
-    }
-}, 1200);
+    checkBackendHealth();
+}, 800);
