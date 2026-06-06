@@ -40,3 +40,4 @@ speech/vosk_model/
 
 # Local-only modules
 audio/
+data/
