@@ -729,6 +729,8 @@ fun ChatScreen() {
     val lastSaid = ChatState.lastSaid
     var showTextInput by remember { mutableStateOf(false) }
     var inputText by remember { mutableStateOf("") }
+    var isChatMode by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
 
     // Determine orb state color
     val orbColor = when {
@@ -797,6 +799,13 @@ fun ChatScreen() {
         }
     }
 
+    // Auto-scroll to latest message in chat mode
+    LaunchedEffect(ChatState.messages.size) {
+        if (isChatMode && ChatState.messages.isNotEmpty()) {
+            listState.animateScrollToItem(ChatState.messages.size - 1)
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(CrystalColors.background)) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -804,152 +813,69 @@ fun ChatScreen() {
         ) {
             Spacer(Modifier.height(48.dp))
 
-            // ── Status Text ──
-            Text(
-                text = statusText,
-                color = CrystalColors.cyan,
-                fontSize = 14.sp,
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = 5.sp,
-                style = MaterialTheme.typography.labelLarge
-            )
-
-            Spacer(Modifier.weight(0.5f))
-
-            // ── Crystal Orb ──
-            Box(
-                modifier = Modifier
-                    .size(orbSizeDp)
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { activity?.doVoiceInput() },
-                            onLongPress = { showTextInput = !showTextInput }
-                        )
-                    },
-                contentAlignment = Alignment.Center
+            // ── Top bar: status + chat/voice toggle ──
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val cx: Float = size.width / 2f
-                    val cy: Float = size.height / 2f
-                    val baseR: Float = minOf(cx, cy) * 0.85f
-                    val glowR: Float = baseR * orbGlowScale.floatValue
-
-                    // ── Rotating Ring 1 (dashed) ──
-                    drawCircle(
-                        color = CrystalColors.flameOrange.copy(alpha = 0.3f),
-                        radius = baseR * 1.25f,
-                        center = Offset(cx, cy),
-                        style = Stroke(width = 2f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
-                            floatArrayOf(8f, 12f), ring1Angle.floatValue
-                        ))
+                // Spacer for centering
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = statusText,
+                    color = CrystalColors.cyan,
+                    fontSize = 14.sp,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 5.sp,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Spacer(Modifier.weight(1f))
+                // Mode toggle button
+                FilledIconButton(
+                    onClick = { isChatMode = !isChatMode },
+                    modifier = Modifier.size(36.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = if (isChatMode) CrystalColors.cyan.copy(alpha = 0.2f)
+                            else CrystalColors.flameOrange.copy(alpha = 0.2f)
                     )
-
-                    // ── Rotating Ring 2 (double, counter-rotating) ──
-                    drawCircle(
-                        color = CrystalColors.flameOrange.copy(alpha = 0.15f),
-                        radius = baseR * 1.4f,
-                        center = Offset(cx, cy),
-                        style = Stroke(width = 3f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
-                            floatArrayOf(4f, 16f), ring2Angle.floatValue
-                        ))
-                    )
-
-                    // ── Crystal Orb Glow ──
-                    drawCircle(
-                        color = orbColor.copy(alpha = 0.08f),
-                        radius = glowR * 1.5f,
-                        center = Offset(cx, cy)
-                    )
-
-                    // ── Crystal Orb Body ──
-                    drawCircle(
-                        color = orbColor.copy(alpha = 0.20f),
-                        radius = glowR,
-                        center = Offset(cx, cy)
-                    )
-                    drawCircle(
-                        color = orbColor.copy(alpha = 0.10f),
-                        radius = glowR * 0.85f,
-                        center = Offset(cx - glowR * 0.1f, cy - glowR * 0.08f)
-                    )
-
-                    // ── Orb Core ──
-                    drawCircle(
-                        color = orbColor.copy(alpha = 0.3f),
-                        radius = baseR * 0.4f,
-                        center = Offset(cx, cy)
-                    )
-
-                    // ── Highlight ──
-                    drawCircle(
-                        color = Color.White.copy(alpha = 0.10f),
-                        radius = baseR * 0.25f,
-                        center = Offset(cx - baseR * 0.15f, cy - baseR * 0.15f)
-                    )
-                    drawCircle(
-                        color = Color.White.copy(alpha = 0.05f),
-                        radius = baseR * 0.15f,
-                        center = Offset(cx - baseR * 0.2f, cy - baseR * 0.2f)
+                ) {
+                    Text(
+                        if (isChatMode) "🎤" else "💬",
+                        fontSize = 16.sp
                     )
                 }
             }
 
-            Spacer(Modifier.weight(0.3f))
-
-            // ── Hint Text ──
-            Text(
-                text = if (isListening) "LISTENING..." else "TAP THE CRYSTAL",
-                color = CrystalColors.cyan.copy(alpha = 0.6f),
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = 3.sp
-            )
-
-            Spacer(Modifier.weight(0.3f))
-
-            // ── Transcript Overlay ──
-            if (lastHeard.isNotEmpty() || lastSaid.isNotEmpty()) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 32.dp),
-                    color = CrystalColors.surface.copy(alpha = 0.7f),
-                    shape = RoundedCornerShape(12.dp)
+            if (isChatMode) {
+                // ═══════════════════════════════════════════════════
+                // CHAT MODE — scrollable message list + text input
+                // ═══════════════════════════════════════════════════
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = PaddingValues(bottom = 4.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        if (lastHeard.isNotEmpty()) {
+                    items(ChatState.messages, key = { it.timestamp }) { msg ->
+                        ChatBubble(msg)
+                    }
+                    if (isTyping) {
+                        item {
                             Text(
-                                text = "[YOU] $lastHeard",
-                                color = CrystalColors.flameOrange.copy(alpha = 0.85f),
-                                fontSize = 13.sp,
+                                text = "JARVIS is thinking...",
+                                color = CrystalColors.cyan.copy(alpha = 0.5f),
+                                fontSize = 12.sp,
                                 fontFamily = FontFamily.Monospace,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                        if (lastSaid.isNotEmpty()) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = "[JARVIS] $lastSaid",
-                                color = CrystalColors.cyan.copy(alpha = 0.85f),
-                                fontSize = 13.sp,
-                                fontFamily = FontFamily.Monospace,
-                                textAlign = TextAlign.Center
+                                modifier = Modifier.padding(start = 8.dp, top = 4.dp)
                             )
                         }
                     }
                 }
-            }
 
-            Spacer(Modifier.height(16.dp))
-
-            // ── Text Input (hidden, toggle with long-press) ──
-            AnimatedVisibility(visible = showTextInput, enter = fadeIn() + slideInVertically(),
-                exit = fadeOut() + slideOutVertically()) {
+                // ── Chat text input bar ──
                 Surface(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     color = CrystalColors.surfaceLight,
                     shape = RoundedCornerShape(24.dp)
                 ) {
@@ -960,13 +886,15 @@ fun ChatScreen() {
                         OutlinedTextField(
                             value = inputText, onValueChange = { inputText = it },
                             modifier = Modifier.weight(1f),
-                            placeholder = { Text("Type a command...", color = CrystalColors.dimText) },
+                            placeholder = { Text("Type a message...", color = CrystalColors.dimText) },
                             singleLine = true,
                             shape = RoundedCornerShape(24.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = CrystalColors.cyan,
                                 unfocusedBorderColor = CrystalColors.dimText,
-                                cursorColor = CrystalColors.cyan
+                                cursorColor = CrystalColors.cyan,
+                                focusedTextColor = CrystalColors.textPrimary,
+                                unfocusedTextColor = CrystalColors.textPrimary,
                             )
                         )
                         Spacer(Modifier.width(8.dp))
@@ -976,7 +904,6 @@ fun ChatScreen() {
                                 if (t.isNotEmpty()) {
                                     wsClient?.sendText(t)
                                     inputText = ""
-                                    showTextInput = false
                                 }
                             },
                             modifier = Modifier.size(44.dp),
@@ -989,9 +916,192 @@ fun ChatScreen() {
                         }
                     }
                 }
-            }
+            } else {
+                // ═══════════════════════════════════════════════════
+                // VOICE MODE — crystal orb
+                // ═══════════════════════════════════════════════════
 
-            Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.weight(0.5f))
+
+                // ── Crystal Orb ──
+                Box(
+                    modifier = Modifier
+                        .size(orbSizeDp)
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = { activity?.doVoiceInput() },
+                                onLongPress = { showTextInput = !showTextInput }
+                            )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val cx: Float = size.width / 2f
+                        val cy: Float = size.height / 2f
+                        val baseR: Float = minOf(cx, cy) * 0.85f
+                        val glowR: Float = baseR * orbGlowScale.floatValue
+
+                        // ── Rotating Ring 1 (dashed) ──
+                        drawCircle(
+                            color = CrystalColors.flameOrange.copy(alpha = 0.3f),
+                            radius = baseR * 1.25f,
+                            center = Offset(cx, cy),
+                            style = Stroke(width = 2f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                floatArrayOf(8f, 12f), ring1Angle.floatValue
+                            ))
+                        )
+
+                        // ── Rotating Ring 2 (double, counter-rotating) ──
+                        drawCircle(
+                            color = CrystalColors.flameOrange.copy(alpha = 0.15f),
+                            radius = baseR * 1.4f,
+                            center = Offset(cx, cy),
+                            style = Stroke(width = 3f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                floatArrayOf(4f, 16f), ring2Angle.floatValue
+                            ))
+                        )
+
+                        // ── Crystal Orb Glow ──
+                        drawCircle(
+                            color = orbColor.copy(alpha = 0.08f),
+                            radius = glowR * 1.5f,
+                            center = Offset(cx, cy)
+                        )
+
+                        // ── Crystal Orb Body ──
+                        drawCircle(
+                            color = orbColor.copy(alpha = 0.20f),
+                            radius = glowR,
+                            center = Offset(cx, cy)
+                        )
+                        drawCircle(
+                            color = orbColor.copy(alpha = 0.10f),
+                            radius = glowR * 0.85f,
+                            center = Offset(cx - glowR * 0.1f, cy - glowR * 0.08f)
+                        )
+
+                        // ── Orb Core ──
+                        drawCircle(
+                            color = orbColor.copy(alpha = 0.3f),
+                            radius = baseR * 0.4f,
+                            center = Offset(cx, cy)
+                        )
+
+                        // ── Highlight ──
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.10f),
+                            radius = baseR * 0.25f,
+                            center = Offset(cx - baseR * 0.15f, cy - baseR * 0.15f)
+                        )
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.05f),
+                            radius = baseR * 0.15f,
+                            center = Offset(cx - baseR * 0.2f, cy - baseR * 0.2f)
+                        )
+                    }
+                }
+
+                Spacer(Modifier.weight(0.3f))
+
+                // ── Hint Text ──
+                Text(
+                    text = if (isListening) "LISTENING..." else "TAP THE CRYSTAL",
+                    color = CrystalColors.cyan.copy(alpha = 0.6f),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 3.sp
+                )
+
+                Spacer(Modifier.weight(0.3f))
+
+                // ── Transcript Overlay ──
+                if (lastHeard.isNotEmpty() || lastSaid.isNotEmpty()) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 32.dp),
+                        color = CrystalColors.surface.copy(alpha = 0.7f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            if (lastHeard.isNotEmpty()) {
+                                Text(
+                                    text = "[YOU] $lastHeard",
+                                    color = CrystalColors.flameOrange.copy(alpha = 0.85f),
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                            if (lastSaid.isNotEmpty()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "[JARVIS] $lastSaid",
+                                    color = CrystalColors.cyan.copy(alpha = 0.85f),
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                // ── Text Input (hidden, toggle with long-press) ──
+                AnimatedVisibility(visible = showTextInput, enter = fadeIn() + slideInVertically(),
+                    exit = fadeOut() + slideOutVertically()) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        color = CrystalColors.surfaceLight,
+                        shape = RoundedCornerShape(24.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = inputText, onValueChange = { inputText = it },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text("Type a command...", color = CrystalColors.dimText) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(24.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = CrystalColors.cyan,
+                                    unfocusedBorderColor = CrystalColors.dimText,
+                                    cursorColor = CrystalColors.cyan,
+                                    focusedTextColor = CrystalColors.textPrimary,
+                                    unfocusedTextColor = CrystalColors.textPrimary,
+                                )
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            FilledIconButton(
+                                onClick = {
+                                    val t = inputText.trim()
+                                    if (t.isNotEmpty()) {
+                                        wsClient?.sendText(t)
+                                        inputText = ""
+                                        showTextInput = false
+                                    }
+                                },
+                                modifier = Modifier.size(44.dp),
+                                shape = RoundedCornerShape(22.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = CrystalColors.flameOrange
+                                )
+                            ) {
+                                Text("➤", fontSize = 20.sp, color = CrystalColors.background)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+            }
         }
 
         // ── Connection indicator (corner) ──

@@ -20,6 +20,7 @@ object CrystalColors {
     val warmWhite = Color(0xFFFFE4B5)        // text
     val redGlow = Color(0xFFFF4444)          // listening state
     val blueGlow = Color(0xFF00D4FF)         // processing state
+    val textPrimary = Color(0xFFFFF0E0)       // primary text
     val dimText = Color(0xFF8A7A6A)          // muted text
     val orbIdle = Color(0xFF00E5FF)          // idle glow
     val orbListening = Color(0xFFFF4444)     // listening glow
