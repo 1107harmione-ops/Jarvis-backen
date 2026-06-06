@@ -18,7 +18,7 @@ enum class Screen(
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 ) {
-    CHAT("Chat", Icons.Filled.Chat, Icons.Outlined.ChatBubbleOutline),
+    CHAT("Voice", Icons.Filled.Mic, Icons.Outlined.Mic),
     MEMORY("Memory", Icons.Filled.History, Icons.Outlined.History),
     SKILLS("Skills", Icons.Filled.Extension, Icons.Outlined.Extension),
     SETTINGS("Settings", Icons.Filled.Settings, Icons.Outlined.Settings),

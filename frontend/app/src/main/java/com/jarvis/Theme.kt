@@ -9,27 +9,44 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
+// ─── Flask Crystal UI Colors ────────────────────────────────
+object CrystalColors {
+    val background = Color(0xFF050201)       // deep black-orange
+    val surface = Color(0xFF0A0808)          // near-black
+    val surfaceLight = Color(0xFF1A0F0A)     // dark warm surface
+    val flameOrange = Color(0xFFFF6B35)      // primary accent
+    val cyan = Color(0xFF00E5FF)             // status / secondary
+    val amber = Color(0xFFFFBF00)            // warm gold
+    val warmWhite = Color(0xFFFFE4B5)        // text
+    val redGlow = Color(0xFFFF4444)          // listening state
+    val blueGlow = Color(0xFF00D4FF)         // processing state
+    val dimText = Color(0xFF8A7A6A)          // muted text
+    val orbIdle = Color(0xFF00E5FF)          // idle glow
+    val orbListening = Color(0xFFFF4444)     // listening glow
+    val orbProcessing = Color(0xFF00D4FF)    // processing glow
+}
+
 private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF90CAF9),
-    onPrimary = Color(0xFF003258),
-    primaryContainer = Color(0xFF00497D),
-    onPrimaryContainer = Color(0xFFD1E4FF),
-    secondary = Color(0xFF80DEEA),
-    onSecondary = Color(0xFF00363A),
-    secondaryContainer = Color(0xFF00505C),
-    onSecondaryContainer = Color(0xFFB2EBF2),
-    tertiary = Color(0xFFCE93D8),
-    surface = Color(0xFF1A1A2E),
-    onSurface = Color(0xFFE3E2E6),
-    surfaceVariant = Color(0xFF2D2D44),
-    onSurfaceVariant = Color(0xFFCAC4D0),
-    background = Color(0xFF121218),
-    onBackground = Color(0xFFE3E2E6),
-    error = Color(0xFFFF5252),
-    onError = Color(0xFF601410),
-    errorContainer = Color(0xFF8C1D18),
-    outline = Color(0xFF49454F),
-    outlineVariant = Color(0xFF2D2D44),
+    primary = CrystalColors.flameOrange,
+    onPrimary = CrystalColors.background,
+    primaryContainer = Color(0xFF1A0A00),
+    onPrimaryContainer = CrystalColors.warmWhite,
+    secondary = CrystalColors.cyan,
+    onSecondary = CrystalColors.background,
+    secondaryContainer = Color(0xFF00333D),
+    onSecondaryContainer = CrystalColors.cyan,
+    tertiary = CrystalColors.amber,
+    surface = CrystalColors.surface,
+    onSurface = CrystalColors.warmWhite,
+    surfaceVariant = CrystalColors.surfaceLight,
+    onSurfaceVariant = CrystalColors.dimText,
+    background = CrystalColors.background,
+    onBackground = CrystalColors.warmWhite,
+    error = CrystalColors.redGlow,
+    onError = CrystalColors.background,
+    errorContainer = Color(0xFF3D0000),
+    outline = Color(0xFF3D2A1A),
+    outlineVariant = Color(0xFF2D1A0A),
 )
 
 private val LightColorScheme = lightColorScheme(

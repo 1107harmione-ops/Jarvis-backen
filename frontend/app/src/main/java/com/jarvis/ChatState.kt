@@ -75,13 +75,25 @@ object ChatState {
     private const val MAX_LOG = 200
     private const val MAX_MSG = 200
 
+    // Transcript overlay for crystal orb UI
+    private val _lastHeard = mutableStateOf("")
+    private val _lastSaid = mutableStateOf("")
+    var lastHeard: String
+        get() = _lastHeard.value
+        set(v) { _lastHeard.value = v }
+    var lastSaid: String
+        get() = _lastSaid.value
+        set(v) { _lastSaid.value = v }
+
     fun addUserMessage(text: String) {
         messages.add(ChatMessage(text, type = MessageType.USER))
+        lastHeard = text
         trim()
     }
 
     fun addBotMessage(text: String) {
         messages.add(ChatMessage(text, type = MessageType.BOT))
+        lastSaid = text
         trim()
     }
 
