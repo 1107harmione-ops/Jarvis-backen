@@ -37,6 +37,31 @@ _kb = DataCenter()
 _skills = SkillLibrary()
 _training_knowledge, _training_sources = load_training_data()
 
+# ── V3 Module Imports ──
+from core.provider_manager import get_provider_manager
+from core.goal_manager import GoalManager
+from core.tool_registry import ToolRegistry, discover_tools
+
+# V3 lazy inits
+_goal_manager = None
+_tool_registry = None
+
+def _get_goal_manager():
+    global _goal_manager
+    if _goal_manager is None:
+        _goal_manager = GoalManager()
+    return _goal_manager
+
+def _get_tool_registry():
+    global _tool_registry
+    if _tool_registry is None:
+        _tool_registry = ToolRegistry()
+        try:
+            discover_tools("tools")
+        except Exception as e:
+            logger.warning("Tool discovery: %s", e)
+    return _tool_registry
+
 from admin.routes import admin_bp, init_admin
 from admin.auth import cleanup_tokens
 init_admin(memory_instance=_memory, kb_instance=_kb)
@@ -65,7 +90,19 @@ def add_cors(resp):
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "online", "platform": "render", "port": PORT, "timestamp": datetime.now(timezone.utc).isoformat()})
+    providers = {}
+    try:
+        providers = get_provider_manager().health_status()
+    except Exception:
+        providers = {}
+    return jsonify({
+        "status": "online",
+        "platform": "render",
+        "port": PORT,
+        "version": "3.0",
+        "providers": providers,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
 
 @app.route("/")
 def index():
@@ -90,7 +127,21 @@ def chat_process():
         metadata = result.get("metadata", {})
         time_ms = result.get("time_ms", 0)
         logger.info("Chat | agent=%s | time=%dms | msg=%s", agent_used, time_ms, str(message)[:80])
-        return jsonify({"reply": str(response), "agent": agent_used, "image_url": metadata.get("image_url"), "filepath": metadata.get("filepath"), "sources": metadata.get("sources"), "execution_output": metadata.get("execution_output"), "task": metadata.get("task"), "target": metadata.get("target"), "compound_execution": metadata.get("compound_execution"), "time_ms": time_ms, "training_entries": len(_training_knowledge), "training_sources": len(_training_sources), "status": "success" if result.get("success", True) else "error"})
+        return jsonify({
+            "reply": str(response),
+            "agent": agent_used,
+            "image_url": metadata.get("image_url"),
+            "filepath": metadata.get("filepath"),
+            "sources": metadata.get("sources"),
+            "execution_output": metadata.get("execution_output"),
+            "task": metadata.get("task"),
+            "target": metadata.get("target"),
+            "compound_execution": metadata.get("compound_execution"),
+            "time_ms": time_ms,
+            "training_entries": len(_training_knowledge),
+            "training_sources": len(_training_sources),
+            "status": "success" if result.get("success", True) else "error"
+        })
     except Exception as e:
         logger.error("Chat error: %s", e)
         return jsonify({"error": str(e), "reply": "I encountered a neural link error."})
@@ -134,7 +185,17 @@ def get_stats():
     except Exception:
         pass
     kb_stats = _kb.stats()
-    return jsonify({"status": "online", "platform": "render", "time": datetime.now().strftime("%I:%M %p, %A %B %d, %Y"), "system": system, "training_entries": len(_training_knowledge), "training_sources": len(_training_sources), "knowledge_entries": kb_stats["total_entries"], "knowledge_categories": len(kb_stats["entries_by_category"])})
+    return jsonify({
+        "status": "online",
+        "platform": "render",
+        "version": "3.0",
+        "time": datetime.now().strftime("%I:%M %p, %A %B %d, %Y"),
+        "system": system,
+        "training_entries": len(_training_knowledge),
+        "training_sources": len(_training_sources),
+        "knowledge_entries": kb_stats["total_entries"],
+        "knowledge_categories": len(kb_stats["entries_by_category"])
+    })
 
 @app.route("/training/refresh", methods=["POST"])
 def refresh_training():
@@ -359,12 +420,197 @@ def delete_session(session_id):
     return jsonify({"status": "deleted"})
 
 
+# ═══════════════════════════════════════════════════════════════════
+# V3 API Routes
+# ═══════════════════════════════════════════════════════════════════
+
+# ─── Planner ───
+@app.route("/v3/plan", methods=["POST"])
+def v3_plan():
+    """Decompose a goal into subtasks (planning only, no execution)."""
+    data = request.json or {}
+    goal = data.get("goal", "").strip()
+    if not goal:
+        return jsonify({"error": "goal required", "tasks": []})
+    try:
+        tasks = _orchestrator.run_plan(goal, data.get("context"))
+        return jsonify({"goal": goal, "tasks": tasks, "task_count": len(tasks)})
+    except Exception as e:
+        logger.error("V3 plan error: %s", e)
+        return jsonify({"error": str(e), "tasks": []})
+
+# ─── Goal / Workflow ───
+@app.route("/v3/goal", methods=["POST"])
+def v3_create_goal():
+    """Create and execute an autonomous goal."""
+    data = request.json or {}
+    description = data.get("description", "").strip()
+    if not description:
+        return jsonify({"error": "description required"})
+    try:
+        goal = _get_goal_manager().create_goal(description, data.get("context"))
+        return jsonify({
+            "goal_id": goal.id if hasattr(goal, "id") else goal.get("goal_id", ""),
+            "description": description,
+            "status": "created"
+        })
+    except Exception as e:
+        logger.error("V3 create goal error: %s", e)
+        return jsonify({"error": str(e)})
+
+@app.route("/v3/goal/run", methods=["POST"])
+def v3_run_goal():
+    """Run an autonomous workflow."""
+    data = request.json or {}
+    description = data.get("description", "").strip()
+    if not description:
+        return jsonify({"error": "description required"})
+    try:
+        result = _orchestrator.run_goal(description, data.get("context"))
+        return jsonify(result)
+    except Exception as e:
+        logger.error("V3 run goal error: %s", e)
+        return jsonify({"error": str(e)})
+
+@app.route("/v3/goals", methods=["GET"])
+def v3_list_goals():
+    """List all goals."""
+    try:
+        status = request.args.get("status")
+        limit = request.args.get("limit", 20, type=int)
+        goals = _get_goal_manager().list_goals(status=status, limit=limit)
+        return jsonify({"goals": goals, "count": len(goals)})
+    except Exception as e:
+        return jsonify({"error": str(e), "goals": []})
+
+@app.route("/v3/goals/<goal_id>", methods=["GET"])
+def v3_get_goal(goal_id):
+    """Get goal details."""
+    try:
+        goal = _get_goal_manager().get_goal(goal_id)
+        if not goal:
+            return jsonify({"error": "goal not found"})
+        return jsonify(goal)
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+# ─── Tools ───
+@app.route("/v3/tools", methods=["GET"])
+def v3_list_tools():
+    """List all available tools."""
+    try:
+        registry = _get_tool_registry()
+        tools = registry.list_tools()
+        return jsonify({"tools": tools, "count": len(tools)})
+    except Exception as e:
+        return jsonify({"error": str(e), "tools": []})
+
+@app.route("/v3/tools/execute", methods=["POST"])
+def v3_execute_tool():
+    """Execute a specific tool."""
+    data = request.json or {}
+    tool = data.get("tool", "").strip()
+    params = data.get("parameters", {})
+    if not tool:
+        return jsonify({"error": "tool name required"})
+    try:
+        result = _orchestrator.run_tool(tool, params)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+# ─── Provider Health ───
+@app.route("/v3/provider/health", methods=["GET"])
+def v3_provider_health():
+    """Get health status of all LLM providers."""
+    try:
+        health = _orchestrator.get_provider_health()
+        return jsonify({"providers": health})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+@app.route("/v3/provider/stats", methods=["GET"])
+def v3_provider_stats():
+    """Get detailed stats for all LLM providers."""
+    try:
+        pm = get_provider_manager()
+        stats = pm.get_provider_stats()
+        return jsonify({"providers": stats})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+# ─── Verifier ───
+@app.route("/v3/verify", methods=["POST"])
+def v3_verify():
+    """Verify a task execution result."""
+    data = request.json or {}
+    task = data.get("task", {})
+    result = data.get("result", {})
+    if not task:
+        return jsonify({"error": "task required"})
+    try:
+        verification = _orchestrator.verify_result(task, result)
+        return jsonify(verification)
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+# ─── Memory V3 ───
+@app.route("/v3/memory/stats", methods=["GET"])
+def v3_memory_stats():
+    """Get V3 memory system stats."""
+    try:
+        from memory.database_memory import DatabaseMemory
+        from memory.vector_memory import VectorMemory
+        db = DatabaseMemory()
+        vec = VectorMemory()
+        return jsonify({
+            "database_memory": True,
+            "vector_memory": {"count": vec.count()}
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+@app.route("/v3/memory/store", methods=["POST"])
+def v3_memory_store():
+    """Store a fact in long-term memory."""
+    data = request.json or {}
+    key = data.get("key", "").strip()
+    value = data.get("value", "").strip()
+    if not key or not value:
+        return jsonify({"error": "key and value required"})
+    try:
+        from memory.database_memory import DatabaseMemory
+        db = DatabaseMemory()
+        db.store_fact(key, value, data.get("category", "general"), data.get("importance", 1))
+        return jsonify({"status": "stored", "key": key})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+@app.route("/v3/memory/recall", methods=["POST"])
+def v3_memory_recall():
+    """Recall facts from long-term memory."""
+    data = request.json or {}
+    query = data.get("query", "").strip()
+    if not query:
+        return jsonify({"error": "query required", "results": []})
+    try:
+        from memory.database_memory import DatabaseMemory
+        db = DatabaseMemory()
+        results = db.search_facts(query, data.get("category"))
+        return jsonify({"results": results, "count": len(results)})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+# ═══════════════════════════════════════════════════════════════════
+
 if __name__ == "__main__":
     logger.info("=" * 55)
-    logger.info("  JARVIS BACKEND (Render Edition)")
+    logger.info("  JARVIS V3 BACKEND (Render Edition)")
     logger.info("  Port: %s", PORT)
     logger.info("  Platform: Render Cloud")
-    logger.info("  Agents: Coding | Image | Task | Research | Search | Reasoning | Chat")
+    logger.info("  V3 Features: Planner | Tools | Verifier | Multi-LLM | Workflow | Memory")
+    logger.info("  Agents: Coding | Image | Task | Research | Search | Reasoning | Chat | Goal")
     logger.info("  Training: %d entries", len(_training_knowledge))
     kb_stats = _kb.stats()
     logger.info("  Knowledge: %d entries, %d categories", kb_stats["total_entries"], len(kb_stats["entries_by_category"]))
