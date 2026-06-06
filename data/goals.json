@@ -1,0 +1,26 @@
+[
+  {
+    "id": "1562dca4",
+    "description": "test goal",
+    "status": "pending",
+    "created_at": 1780752025.3828177,
+    "updated_at": 1780752025.3828177,
+    "plan": [],
+    "completed_tasks": [],
+    "failed_tasks": [],
+    "result": "",
+    "context": {}
+  },
+  {
+    "id": "00f40b1e",
+    "description": "test",
+    "status": "pending",
+    "created_at": 1780752090.7339728,
+    "updated_at": 1780752090.7339728,
+    "plan": [],
+    "completed_tasks": [],
+    "failed_tasks": [],
+    "result": "",
+    "context": {}
+  }
+]

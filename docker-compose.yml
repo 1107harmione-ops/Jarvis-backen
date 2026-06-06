@@ -1,0 +1,28 @@
+# ── JARVIS V3 Docker Compose ──
+# For local development and testing.
+
+version: "3.8"
+
+services:
+  jarvis:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jarvis-backend
+    ports:
+      - "${PORT:-8001}:8001"
+    env_file:
+      - .env
+    environment:
+      - PORT=${PORT:-8001}
+    volumes:
+      # Persist SQLite databases and training data
+      - ./data:/app/data
+      - ./training_data:/app/training_data
+      # Mount audio directory for recordings
+      - ./audio:/app/audio
+    restart: unless-stopped
+    # Resource limits for 512MB Render deployment
+    mem_limit: 512m
+    memswap_limit: 256m
+    cpus: "1.0"
