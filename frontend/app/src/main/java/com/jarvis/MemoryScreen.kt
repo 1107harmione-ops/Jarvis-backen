@@ -17,6 +17,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,12 +48,23 @@ fun MemoryScreen() {
             }
         }
 
-        // Search bar
+        // Search bar with debounce
+        val searchScope = rememberCoroutineScope()
+        var searchText by remember { mutableStateOf(queryText) }
+        var lastSearchCall by remember { mutableStateOf(0L) }
         OutlinedTextField(
-            value = queryText,
-            onValueChange = {
-                DashboardState.memoryQuery.value = it
-                wsClient?.queryMemory("facts", query = it)
+            value = searchText,
+            onValueChange = { newText ->
+                searchText = newText
+                lastSearchCall = System.currentTimeMillis()
+                searchScope.launch {
+                    delay(350)
+                    // Only fire if no new keystroke arrived in the last 350ms
+                    if (System.currentTimeMillis() - lastSearchCall >= 340) {
+                        DashboardState.memoryQuery.value = newText
+                        wsClient?.queryMemory("facts", query = newText)
+                    }
+                }
             },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             placeholder = { Text("Search facts...") },

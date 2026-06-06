@@ -10,6 +10,7 @@ import java.util.*
 class MicrophoneCapture(private val context: Context) {
     private var recorder: MediaRecorder? = null
     private var isRecording = false
+    private var currentOutputFile: File? = null
     private val outputDir = context.cacheDir
 
     data class AudioResult(val file: File, val durationMs: Long)
@@ -17,6 +18,7 @@ class MicrophoneCapture(private val context: Context) {
     fun startRecording(): Boolean {
         if (isRecording) return false
         val outputFile = File(outputDir, "jarvis_${UUID.randomUUID()}.m4a")
+        currentOutputFile = outputFile
         return try {
             recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 MediaRecorder(context)
@@ -52,14 +54,15 @@ class MicrophoneCapture(private val context: Context) {
                 release()
             }
             isRecording = false
-            val file = File(outputDir, "jarvis_last.wav")
-            Log.d(TAG, "Recording stopped")
+            val file = currentOutputFile ?: File(outputDir, "jarvis_unknown.m4a")
+            Log.d(TAG, "Recording stopped: ${file.absolutePath}")
             AudioResult(file, 0L)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to stop recording", e)
             null
         } finally {
             recorder = null
+            currentOutputFile = null
         }
     }
 

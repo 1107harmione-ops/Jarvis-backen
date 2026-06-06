@@ -20,10 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.gson.Gson
 import com.google.gson.JsonObject
-import com.google.gson.JsonParser
 import kotlinx.coroutines.launch
-
-private val adminClient = AdminClient()
 
 enum class AdminTab(val title: String, val icon: @Composable () -> Unit) {
     Files("Files", { Text("📁", fontSize = 16.sp) }),
@@ -55,7 +52,7 @@ enum class AdminTab(val title: String, val icon: @Composable () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AdminScreen() {
+fun AdminScreen(adminClient: AdminClient) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var isAuthed by remember { mutableStateOf(false) }
@@ -98,7 +95,11 @@ fun AdminScreen() {
                     }
                 }) { Text("Authenticate") }
             },
-            dismissButton = {}
+            dismissButton = {
+                TextButton(onClick = { showPasswordDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 
@@ -150,14 +151,14 @@ fun AdminScreen() {
         ) { padding ->
             Box(Modifier.padding(padding).fillMaxSize()) {
                 when (selectedTab) {
-                    AdminTab.Files -> AdminFilesTab(scope)
-                    AdminTab.Config -> AdminConfigTab(scope)
-                    AdminTab.ApiKeys -> AdminApiKeysTab(scope)
-                    AdminTab.Providers -> AdminProvidersTab(scope)
-                    AdminTab.Sessions -> AdminSessionsTab(scope)
-                    AdminTab.Database -> AdminDatabaseTab(scope)
-                    AdminTab.System -> AdminSystemTab(scope)
-                    AdminTab.Audit -> AdminAuditTab(scope)
+                    AdminTab.Files -> AdminFilesTab(scope, adminClient)
+                    AdminTab.Config -> AdminConfigTab(scope, adminClient)
+                    AdminTab.ApiKeys -> AdminApiKeysTab(scope, adminClient)
+                    AdminTab.Providers -> AdminProvidersTab(scope, adminClient)
+                    AdminTab.Sessions -> AdminSessionsTab(scope, adminClient)
+                    AdminTab.Database -> AdminDatabaseTab(scope, adminClient)
+                    AdminTab.System -> AdminSystemTab(scope, adminClient)
+                    AdminTab.Audit -> AdminAuditTab(scope, adminClient)
                 }
             }
         }
@@ -165,7 +166,7 @@ fun AdminScreen() {
 }
 
 @Composable
-fun AdminFilesTab(scope: kotlinx.coroutines.CoroutineScope) {
+fun AdminFilesTab(scope: kotlinx.coroutines.CoroutineScope, adminClient: AdminClient) {
     val ctx = LocalContext.current
     var currentPath by remember { mutableStateOf("") }
     var entries by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
@@ -248,7 +249,7 @@ fun AdminFilesTab(scope: kotlinx.coroutines.CoroutineScope) {
 }
 
 @Composable
-fun AdminConfigTab(scope: kotlinx.coroutines.CoroutineScope) {
+fun AdminConfigTab(scope: kotlinx.coroutines.CoroutineScope, adminClient: AdminClient) {
     val ctx = LocalContext.current
     var config by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var loading by remember { mutableStateOf(true) }
@@ -296,7 +297,7 @@ fun AdminConfigTab(scope: kotlinx.coroutines.CoroutineScope) {
 }
 
 @Composable
-fun AdminApiKeysTab(scope: kotlinx.coroutines.CoroutineScope) {
+fun AdminApiKeysTab(scope: kotlinx.coroutines.CoroutineScope, adminClient: AdminClient) {
     val ctx = LocalContext.current
     var keys by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -348,7 +349,7 @@ fun AdminApiKeysTab(scope: kotlinx.coroutines.CoroutineScope) {
 }
 
 @Composable
-fun AdminProvidersTab(scope: kotlinx.coroutines.CoroutineScope) {
+fun AdminProvidersTab(scope: kotlinx.coroutines.CoroutineScope, adminClient: AdminClient) {
     val ctx = LocalContext.current
     var providers by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -377,7 +378,7 @@ fun AdminProvidersTab(scope: kotlinx.coroutines.CoroutineScope) {
 }
 
 @Composable
-fun AdminSessionsTab(scope: kotlinx.coroutines.CoroutineScope) {
+fun AdminSessionsTab(scope: kotlinx.coroutines.CoroutineScope, adminClient: AdminClient) {
     val ctx = LocalContext.current
     var sessions by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -445,7 +446,7 @@ fun AdminSessionsTab(scope: kotlinx.coroutines.CoroutineScope) {
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-fun AdminDatabaseTab(scope: kotlinx.coroutines.CoroutineScope) {
+fun AdminDatabaseTab(scope: kotlinx.coroutines.CoroutineScope, adminClient: AdminClient) {
     var result by remember { mutableStateOf("Select a collection") }
     var selectedCol by remember { mutableStateOf("queries") }
     val ctx = LocalContext.current
@@ -481,7 +482,7 @@ fun AdminDatabaseTab(scope: kotlinx.coroutines.CoroutineScope) {
 }
 
 @Composable
-fun AdminSystemTab(scope: kotlinx.coroutines.CoroutineScope) {
+fun AdminSystemTab(scope: kotlinx.coroutines.CoroutineScope, adminClient: AdminClient) {
     var info by remember { mutableStateOf<Map<String, Any>>(emptyMap()) }
     var loading by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
@@ -508,7 +509,7 @@ fun AdminSystemTab(scope: kotlinx.coroutines.CoroutineScope) {
 }
 
 @Composable
-fun AdminAuditTab(scope: kotlinx.coroutines.CoroutineScope) {
+fun AdminAuditTab(scope: kotlinx.coroutines.CoroutineScope, adminClient: AdminClient) {
     var entries by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {

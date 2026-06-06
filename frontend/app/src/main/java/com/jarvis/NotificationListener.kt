@@ -1,10 +1,13 @@
 package com.jarvis
 
+import android.os.Handler
+import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 
 class NotificationListener : NotificationListenerService() {
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val packageName = sbn.packageName
@@ -20,20 +23,24 @@ class NotificationListener : NotificationListenerService() {
             if (text.isNotEmpty()) append(text)
             if (isEmpty()) append("Notification from $appName")
         }
-        ChatState.addSystemMessage(display)
-        ChatState.addLog("Notification: $packageName - $title")
 
-        // Forward to server if connected
-        val ws = AppState.wsClient
-        if (ws != null) {
-            val msg = com.google.gson.JsonObject().apply {
-                addProperty("type", "notification")
-                addProperty("package", packageName)
-                addProperty("title", title)
-                addProperty("text", text)
-                addProperty("speaker", "system")
+        // Post state mutations to main thread for thread safety
+        mainHandler.post {
+            ChatState.addSystemMessage(display)
+            ChatState.addLog("Notification: $packageName - $title")
+
+            // Forward to server if connected
+            val ws = AppState.wsClient
+            if (ws != null) {
+                val msg = com.google.gson.JsonObject().apply {
+                    addProperty("type", "notification")
+                    addProperty("package", packageName)
+                    addProperty("title", title)
+                    addProperty("text", text)
+                    addProperty("speaker", "system")
+                }
+                ws.send(msg)
             }
-            ws.send(msg)
         }
     }
 

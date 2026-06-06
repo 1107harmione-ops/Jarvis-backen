@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.sp
 fun ProvidersScreen() {
     val ctx = LocalContext.current
     val wsClient = AppState.wsClient
-    val providers = remember { ProviderManager.providers }
+    val providers = ProviderManager.providers  // observable state list triggers recomposition
     var expandedId by remember { mutableStateOf<String?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }

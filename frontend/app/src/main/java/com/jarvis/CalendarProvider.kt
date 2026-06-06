@@ -1,8 +1,11 @@
 package com.jarvis
 
+import android.Manifest
 import android.content.ContentValues
 import android.content.Context
+import android.content.pm.PackageManager
 import android.provider.CalendarContract
+import androidx.core.content.ContextCompat
 import java.util.Date
 import java.util.TimeZone
 
@@ -14,7 +17,16 @@ object CalendarProvider {
         val description: String = ""
     )
 
+    private fun hasReadPermission(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun hasWritePermission(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED
+    }
+
     fun getUpcoming(context: Context, days: Int = 7): List<CalendarEvent> {
+        if (!hasReadPermission(context)) return emptyList()
         val events = mutableListOf<CalendarEvent>()
         val now = System.currentTimeMillis()
         val end = now + days * 24L * 60 * 60 * 1000
@@ -44,8 +56,9 @@ object CalendarProvider {
     }
 
     fun createEvent(context: Context, title: String, startMs: Long, endMs: Long, location: String = ""): Boolean {
+        if (!hasWritePermission(context)) return false
         try {
-            val calId = _getPrimaryCalendarId(context) ?: return false
+            val calId = getPrimaryCalendarId(context) ?: return false
             val values = ContentValues().apply {
                 put(CalendarContract.Events.DTSTART, startMs)
                 put(CalendarContract.Events.DTEND, endMs)
@@ -61,7 +74,8 @@ object CalendarProvider {
         }
     }
 
-    private fun _getPrimaryCalendarId(context: Context): Long? {
+    private fun getPrimaryCalendarId(context: Context): Long? {
+        if (!hasReadPermission(context)) return null
         try {
             context.contentResolver.query(
                 CalendarContract.Calendars.CONTENT_URI,

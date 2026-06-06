@@ -8,6 +8,7 @@ import java.util.Locale
 /**
  * Manages Text-to-Speech (TTS) for the app.
  * Initialises lazily and provides a simple speak() interface.
+ * Queues speech requests that arrive before the engine is ready.
  */
 class TTSManager(
     private val context: Context
@@ -15,6 +16,7 @@ class TTSManager(
 
     private var tts: TextToSpeech? = null
     private var ready = false
+    private val pendingTexts = mutableListOf<String>()
 
     init {
         tts = TextToSpeech(context, this)
@@ -24,7 +26,11 @@ class TTSManager(
         if (status == TextToSpeech.SUCCESS) {
             ready = true
             tts?.language = Locale.US
-            Log.d(TAG, "TTS engine ready")
+            // Flush any texts that were queued before init completed
+            val queued = pendingTexts.toList()
+            pendingTexts.clear()
+            queued.forEach { speakNow(it) }
+            Log.d(TAG, "TTS engine ready — flushed ${queued.size} queued")
         } else {
             Log.w(TAG, "TTS engine init failed: $status")
         }
@@ -32,9 +38,14 @@ class TTSManager(
 
     fun speak(text: String) {
         if (!ready) {
-            Log.d(TAG, "TTS not ready yet — skipping speak")
+            Log.d(TAG, "TTS not ready yet — queueing")
+            pendingTexts.add(text)
             return
         }
+        speakNow(text)
+    }
+
+    private fun speakNow(text: String) {
         Log.d(TAG, "TTS speak: $text")
         tts?.speak(
             text,
@@ -46,6 +57,7 @@ class TTSManager(
 
     fun shutdown() {
         ready = false
+        pendingTexts.clear()
         tts?.stop()
         tts?.shutdown()
         tts = null

@@ -23,9 +23,28 @@ object SettingsManager {
     fun getServerPort(): String = prefs.getString(KEY_PORT, DEFAULT_PORT) ?: DEFAULT_PORT
 
     fun getWsUrl(): String {
-        val host = getServerHost().removeSuffix("/").removeSuffix("/ws")
+        val rawHost = getServerHost().removeSuffix("/").removeSuffix("/ws")
         val port = getServerPort()
-        return "$host:$port/ws"
+
+        // Extract scheme and host without port
+        val scheme = when {
+            rawHost.startsWith("wss://") -> "wss://"
+            rawHost.startsWith("ws://") -> "ws://"
+            rawHost.startsWith("https://") -> "wss://"
+            rawHost.startsWith("http://") -> "ws://"
+            else -> "wss://"
+        }
+        val hostOnly = rawHost
+            .removePrefix("wss://").removePrefix("ws://")
+            .removePrefix("https://").removePrefix("http://")
+            .split(":")[0]  // remove any port from host string
+
+        // Use port from settings; if it's default, omit it
+        return if (port == "443" || port == "80") {
+            "$scheme$hostOnly/ws"
+        } else {
+            "$scheme$hostOnly:$port/ws"
+        }
     }
 
     fun saveServer(host: String, port: String) {

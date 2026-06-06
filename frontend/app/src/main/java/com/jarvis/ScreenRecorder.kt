@@ -33,18 +33,37 @@ object ScreenRecorder {
             val file = createOutputFile(context)
             outputFile = file
             val mpm = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            @Suppress("DEPRECATION")
+            val mediaProjection = mpm.getMediaProjection(Activity.RESULT_OK, projectionIntent)
+            // Use display metrics for orientation-aware video size
+            val displayMetrics = context.resources.displayMetrics
+            val videoWidth: Int
+            val videoHeight: Int
+            if (displayMetrics.widthPixels > displayMetrics.heightPixels) {
+                videoWidth = 1920; videoHeight = 1080  // landscape
+            } else {
+                videoWidth = 1080; videoHeight = 1920  // portrait
+            }
             mediaRecorder = MediaRecorder().apply {
-                setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+                setAudioSource(MediaRecorder.AudioSource.MIC)
                 setVideoSource(MediaRecorder.VideoSource.SURFACE)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setOutputFile(file.absolutePath)
-                setVideoSize(1080, 1920)
+                setVideoSize(videoWidth, videoHeight)
                 setVideoEncoder(MediaRecorder.VideoEncoder.H264)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                 setVideoEncodingBitRate(5_000_000)
                 setVideoFrameRate(30)
                 prepare()
             }
+            // Link MediaProjection virtual display to the MediaRecorder surface
+            val density = displayMetrics.densityDpi
+            mediaProjection?.createVirtualDisplay(
+                "JARVIS Screen Recording",
+                videoWidth, videoHeight, density,
+                android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                mediaRecorder?.surface, null, null
+            )
             isRecording = true
             Log.d(TAG, "Recording started: ${file.absolutePath}")
             true

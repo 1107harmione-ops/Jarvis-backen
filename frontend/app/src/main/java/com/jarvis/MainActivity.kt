@@ -20,6 +20,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -102,10 +103,12 @@ class MainActivity : ComponentActivity() {
         override fun onError(error: Int) {
             isVoiceActive = false
             ChatState.isListening = false
-            // Destroy and recreate SpeechRecognizer to prevent freezing
-            speechRecognizer?.destroy()
-            speechRecognizer = null
-            setupSpeechRecognizer()
+            // Defer destroy/recreate to avoid use-after-free in SpeechRecognizer callback
+            mainHandler.post {
+                speechRecognizer?.destroy()
+                speechRecognizer = null
+                setupSpeechRecognizer()
+            }
             val retryDelay = when (error) {
                 SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 1200L
                 SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> 700L
@@ -308,19 +311,16 @@ class MainActivity : ComponentActivity() {
         ChatState.isListening = false
         ChatState.isAwake = false
         setupSpeechRecognizer()
-        setContent { JarvisTheme { JarvisApp() } }
+        setContent { JarvisTheme { JarvisApp(adminClient) } }
         ensureAudioPermission()
         // TASK 8 — TTS engine check
         checkTtsEngine()
     }
 
     private fun checkTtsEngine() {
-        val checkIntent = Intent()
-        checkIntent.action = TextToSpeech.Engine.ACTION_CHECK_TTS_DATA
-        if (checkIntent.resolveActivity(packageManager) == null) {
-            Log.w(TAG, "No TTS engine found — prompt user to install Google Speech Services")
-            Toast.makeText(this, "Install Google Speech Services for TTS", Toast.LENGTH_LONG).show()
-        }
+        // TTSManager handles engine availability via onInit callback;
+        // no shallow resolveActivity check needed (it gives false negatives).
+        Log.i(TAG, "TTS will be verified when TextToSpeech engine initializes")
     }
 
     override fun onStart() {
@@ -364,7 +364,7 @@ class MainActivity : ComponentActivity() {
     // ─── Backend Health Check ──────────────────────────────
     private fun checkBackendHealth() {
         healthCheckJob?.cancel()
-        healthCheckJob = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+        healthCheckJob = lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val client = OkHttpClient.Builder()
                     .connectTimeout(5, TimeUnit.SECONDS)
@@ -472,10 +472,10 @@ class MainActivity : ComponentActivity() {
 
         isVoiceActive = true
         ChatState.isListening = true
-        fallbackVoiceJob = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+        fallbackVoiceJob = lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val pcmBytes = capturePcmAudio(4500L)
-                if (pcmBytes.isNullOrEmpty()) {
+                if (pcmBytes == null || pcmBytes.isEmpty()) {
                     Log.w(TAG, "Fallback capture returned no audio")
                     return@launch
                 }
@@ -675,7 +675,7 @@ class MainActivity : ComponentActivity() {
 // ─── App Shell ────────────────────────────────────────────
 
 @Composable
-fun JarvisApp() {
+fun JarvisApp(adminClient: AdminClient = AdminClient()) {
     val activeTab = ChatState.activeTab
     val admin = ChatState.adminMode
     Scaffold(
@@ -689,7 +689,7 @@ fun JarvisApp() {
                 skills = { SkillsScreen() },
                 settings = { AppSettingsScreen() },
                 dashboard = { DashboardScreen() },
-                admin = { AdminScreen() }
+                admin = { AdminScreen(adminClient) }
             )
         }
     }

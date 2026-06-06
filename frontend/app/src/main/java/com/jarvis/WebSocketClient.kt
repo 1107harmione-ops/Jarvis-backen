@@ -365,6 +365,38 @@ class WebSocketClient {
             postChatFallback(text, intent)
         }
     }
+
+    /** HTTP fallback when WebSocket is unavailable */
+    private suspend fun postChatFallback(text: String, intent: String) = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            val url = if (::serverUrl.isInitialized) {
+                serverUrl.replace("wss://", "https://").replace("ws://", "http://")
+            } else {
+                SettingsManager.getWsUrl().replace("wss://", "https://").replace("ws://", "http://")
+            }
+            val endpoint = if (url.contains(":")) url else "$url:8000"
+            val body = gson.toJson(mapOf("message" to text, "text" to text, "intent" to intent, "speaker" to "user"))
+            val request = Request.Builder()
+                .url("$endpoint/chat")
+                .post(body.toRequestBody(jsonMediaType))
+                .build()
+            chatClient.newCall(request).execute().use { response ->
+                val reply = response.body?.string() ?: "{}"
+                val json = JsonParser.parseString(reply).asJsonObject
+                val replyText = json.get("response")?.asString ?: json.get("message")?.asString ?: "No response"
+                withContext(Dispatchers.Main) {
+                    ChatState.addBotMessage(replyText)
+                    ChatState.isTyping = false
+                }
+                log("HTTP fallback response received")
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+                ChatState.addErrorMessage("Chat fallback failed: ${e.message}")
+                ChatState.isTyping = false
+            }
+            log("HTTP fallback error: ${e.message}", isError = true)
+        }
     }
 
     fun queryMemory(action: String = "history", limit: Int = 20, query: String = "") {

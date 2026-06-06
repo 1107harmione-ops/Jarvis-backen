@@ -25,7 +25,8 @@ object CameraManager {
     }
 
     fun getPhotoUri(context: Context): Uri {
-        return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photoFile!!)
+        val file = photoFile ?: throw IllegalStateException("Call createPhotoFile() before getPhotoUri()")
+        return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }
 
     fun getLaunchIntent(context: Context): Intent {

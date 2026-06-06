@@ -7,6 +7,7 @@ import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -28,12 +29,33 @@ class AdminClient {
 
     private fun baseUrl(): String {
         val host = SettingsManager.getServerHost().replace("wss://", "https://").replace("ws://", "http://")
-        return host
+        val port = SettingsManager.getServerPort()
+        // Only append port if it's not the default for the scheme
+        return if (port.isNotEmpty() && port != "443" && port != "80") {
+            "$host:$port"
+        } else {
+            host
+        }
     }
 
-    fun authBlocking(password: String): Result<String> = runBlocking { auth(password) }
+    fun authBlocking(password: String): Result<String> {
+        // Use runBlocking on IO to avoid ANR on main thread
+        return try {
+            kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                withTimeout(10_000) { auth(password) }
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("Admin auth timed out", e))
+        }
+    }
 
-    fun logoutBlocking(): Result<JsonObject> = runBlocking { logout() }
+    fun logoutBlocking(): Result<JsonObject> {
+        return try {
+            kotlinx.coroutines.runBlocking { logout() }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     suspend fun auth(password: String): Result<String> = withContext(Dispatchers.IO) {
         try {

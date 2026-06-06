@@ -1,6 +1,7 @@
 package com.jarvis
 
 import android.content.Context
+import androidx.compose.runtime.mutableStateListOf
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
@@ -9,8 +10,8 @@ object ProviderManager {
     private lateinit var prefs: android.content.SharedPreferences
     private val gson = Gson()
 
-    private val _providers = mutableListOf<AiProvider>()
-    val providers: List<AiProvider> get() = _providers.toList()
+    private val _providers = mutableStateListOf<AiProvider>()
+    val providers: List<AiProvider> get() = _providers
 
     var activeProviderId: String? = null
 
