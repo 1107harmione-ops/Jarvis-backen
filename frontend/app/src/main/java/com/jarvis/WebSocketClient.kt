@@ -369,12 +369,16 @@ class WebSocketClient {
     /** HTTP fallback when WebSocket is unavailable */
     private suspend fun postChatFallback(text: String, intent: String) = kotlinx.coroutines.withContext(Dispatchers.IO) {
         try {
-            val url = if (::serverUrl.isInitialized) {
-                serverUrl.replace("wss://", "https://").replace("ws://", "http://")
+            val rawUrl = if (::serverUrl.isInitialized) {
+                serverUrl
             } else {
-                SettingsManager.getWsUrl().replace("wss://", "https://").replace("ws://", "http://")
+                SettingsManager.getWsUrl()
             }
-            val endpoint = if (url.contains(":")) url else "$url:8000"
+            // Convert WS scheme to HTTP and strip /ws suffix
+            val url = rawUrl
+                .replace("wss://", "https://").replace("ws://", "http://")
+                .removeSuffix("/ws").removeSuffix("/")
+            val endpoint = if (url.contains("://")) url else "$url:8000"
             val body = gson.toJson(mapOf("message" to text, "text" to text, "intent" to intent, "speaker" to "user"))
             val request = Request.Builder()
                 .url("$endpoint/chat")
@@ -383,7 +387,7 @@ class WebSocketClient {
             chatClient.newCall(request).execute().use { response ->
                 val reply = response.body?.string() ?: "{}"
                 val json = JsonParser.parseString(reply).asJsonObject
-                val replyText = json.get("response")?.asString ?: json.get("message")?.asString ?: "No response"
+                val replyText = json.get("response")?.asString ?: json.get("reply")?.asString ?: json.get("message")?.asString ?: "No response"
                 withContext(Dispatchers.Main) {
                     ChatState.addBotMessage(replyText)
                     ChatState.isTyping = false

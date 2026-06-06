@@ -8,7 +8,7 @@ object SettingsManager {
     private const val KEY_URL = "server_host"
     private const val KEY_PORT = "server_port"
     private const val KEY_THEME = "theme_mode"
-    private const val DEFAULT_URL = "wss://jarvis-ai-assistant-25hj.onrender.com"
+    private const val DEFAULT_URL = "wss://jarvis-backen-ouhz.onrender.com"
     private const val DEFAULT_PORT = "443"
 
     private lateinit var prefs: SharedPreferences
