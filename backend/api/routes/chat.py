@@ -1,5 +1,3 @@
-"""Chat routes — send messages, stream responses, manage conversation history."""
-
 from __future__ import annotations
 
 import json
@@ -22,11 +20,9 @@ from backend.schemas.conversation import (
     ConversationListResponse,
     ConversationResponse,
 )
+from backend.services.chat import get_chat_service
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-
-# ── Helper ─────────────────────────────────────────────────────────────
 
 
 async def _get_user_conversation(
@@ -34,7 +30,6 @@ async def _get_user_conversation(
     user_id: UUID,
     db: AsyncSession,
 ) -> Conversation:
-    """Fetch a conversation owned by the user or raise 404."""
     result = await db.execute(
         select(Conversation).where(
             Conversation.id == conversation_id,
@@ -50,29 +45,12 @@ async def _get_user_conversation(
     return conversation
 
 
-def _build_chat_context(messages: list[Message]) -> list[dict]:
-    """Convert Message ORM rows to the LLM context format."""
-    return [
-        {"role": msg.role, "content": msg.content}
-        for msg in messages
-    ]
-
-
-# ── Chat Completion ────────────────────────────────────────────────────
-
-
 @router.post("", response_model=ChatResponse)
 async def chat_completion(
     payload: ChatRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ChatResponse:
-    """Send a message and receive an LLM-generated reply.
-
-    If ``conversation_id`` is provided the message is appended to that
-    conversation; otherwise a new conversation is created.
-    """
-    # ── Resolve or create conversation ────────────────────────────
     if payload.conversation_id:
         conversation = await _get_user_conversation(
             payload.conversation_id, current_user.id, db
@@ -85,22 +63,26 @@ async def chat_completion(
         db.add(conversation)
         await db.flush()
 
-    # ── Save user message ─────────────────────────────────────────
     user_message = Message(
         conversation_id=conversation.id,
         role="user",
         content=payload.message,
-        token_count=0,  # TODO: count tokens
     )
     db.add(user_message)
+    await db.flush()
 
-    # ── Generate LLM response (placeholder) ──────────────────────
-    # TODO: delegate to LLM service with conversation context
-    assistant_content = (
-        f"This is a placeholder response. "
-        f"You said: '{payload.message[:50]}{'…' if len(payload.message) > 50 else ''}'"
+    chat_service = get_chat_service()
+    result = await chat_service.process_message(
+        message=payload.message,
+        db=db,
+        conversation_id=conversation.id,
+        user_id=current_user.id,
+        temperature=payload.temperature,
+        max_tokens=payload.max_tokens,
     )
-    tokens_used = len(payload.message.split()) + len(assistant_content.split())
+
+    assistant_content = result.get("reply", "")
+    tokens_used = result.get("tokens_used", 0)
 
     assistant_message = Message(
         conversation_id=conversation.id,
@@ -109,6 +91,8 @@ async def chat_completion(
         token_count=tokens_used,
     )
     db.add(assistant_message)
+
+    conversation.title = assistant_content[:80]
     await db.flush()
 
     return ChatResponse(
@@ -119,12 +103,11 @@ async def chat_completion(
     )
 
 
-# ── Streaming Chat ─────────────────────────────────────────────────────
-
-
-async def _generate_stream(payload: ChatRequest, user: User, db: AsyncSession) -> AsyncGenerator[str, None]:
-    """SSE event stream for real-time LLM responses."""
-    # Resolve or create conversation (same as non-streaming)
+async def _generate_stream(
+    payload: ChatRequest,
+    user: User,
+    db: AsyncSession,
+) -> AsyncGenerator[str, None]:
     if payload.conversation_id:
         conversation = await _get_user_conversation(
             payload.conversation_id, user.id, db
@@ -137,7 +120,6 @@ async def _generate_stream(payload: ChatRequest, user: User, db: AsyncSession) -
         db.add(conversation)
         await db.flush()
 
-    # Save user message
     user_msg = Message(
         conversation_id=conversation.id,
         role="user",
@@ -146,28 +128,28 @@ async def _generate_stream(payload: ChatRequest, user: User, db: AsyncSession) -
     db.add(user_msg)
     await db.flush()
 
-    # TODO: replace with actual streaming from LLM service
-    # Simulate streaming tokens for now
-    words = (
-        f"This is a streamed placeholder response to: '{payload.message[:40]}…'"
-    ).split()
+    chat_service = get_chat_service()
+    full_content = ""
+    async for chunk in chat_service.process_message_stream(
+        message=payload.message,
+        db=db,
+        conversation_id=conversation.id,
+        user_id=user.id,
+        temperature=payload.temperature,
+        max_tokens=payload.max_tokens,
+    ):
+        full_content += chunk
+        stream_chunk = StreamChunk(type="text", content=chunk, done=False)
+        yield f"data: {stream_chunk.model_dump_json()}\n\n"
 
-    for word in words:
-        chunk = StreamChunk(type="text", content=word + " ", done=False)
-        yield f"data: {chunk.model_dump_json()}\n\n"
-        import asyncio
-        await asyncio.sleep(0.05)  # simulate latency
-
-    # Save assistant message
     assistant_msg = Message(
         conversation_id=conversation.id,
         role="assistant",
-        content=" ".join(words),
+        content=full_content,
     )
     db.add(assistant_msg)
     await db.flush()
 
-    # Signal completion
     done_chunk = StreamChunk(type="done", content="", done=True)
     yield f"data: {done_chunk.model_dump_json()}\n\n"
 
@@ -178,7 +160,6 @@ async def chat_stream(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Stream an LLM response as server-sent events (SSE)."""
     from fastapi.responses import StreamingResponse
 
     return StreamingResponse(
@@ -192,9 +173,6 @@ async def chat_stream(
     )
 
 
-# ── History & Conversation Management ──────────────────────────────────
-
-
 @router.get("/history", response_model=ConversationListResponse)
 async def list_conversations(
     skip: int = Query(0, ge=0),
@@ -202,7 +180,6 @@ async def list_conversations(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationListResponse:
-    """List the current user's conversations, newest first."""
     result = await db.execute(
         select(Conversation)
         .where(Conversation.user_id == current_user.id)
@@ -212,7 +189,6 @@ async def list_conversations(
     )
     items = list(result.scalars().all())
 
-    # Get total count
     count_result = await db.execute(
         select(Conversation).where(Conversation.user_id == current_user.id)
     )
@@ -230,7 +206,6 @@ async def get_conversation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationResponse:
-    """Get a single conversation (without full message history)."""
     conversation = await _get_user_conversation(conversation_id, current_user.id, db)
     return ConversationResponse.model_validate(conversation)
 
@@ -241,6 +216,5 @@ async def delete_conversation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Delete a conversation and all its messages."""
     conversation = await _get_user_conversation(conversation_id, current_user.id, db)
     await db.delete(conversation)

@@ -1,6 +1,11 @@
-"""Chat processing service."""
 from typing import Optional
 from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.models.conversation import Conversation
+from backend.models.message import Message
 from backend.services.llm import get_llm_service
 from backend.core.logging import get_logger
 
@@ -8,38 +13,42 @@ logger = get_logger(__name__)
 
 
 class ChatService:
-    """Handles chat message processing and LLM interaction."""
-
-    SYSTEM_PROMPT = (
-        "You are JARVIS, an advanced AI voice assistant. You are helpful, concise, and knowledgeable. "
-        "Respond naturally and conversationally. Keep responses under 200 words unless asked for detail. "
-        "If you can't answer something, be honest about it."
-    )
-
     def __init__(self):
         self.llm = get_llm_service()
 
     async def process_message(
         self,
         message: str,
+        db: AsyncSession,
         conversation_id: Optional[UUID] = None,
         user_id: Optional[UUID] = None,
         temperature: float = 0.3,
         max_tokens: int = 1024,
     ) -> dict:
-        """
-        Process a user message and return the assistant's response.
-
-        Returns:
-            {"reply": str, "conversation_id": UUID, "tokens_used": int}
-        """
-        # Build messages list with system prompt
         messages = [
-            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "system", "content": (
+                "You are JARVIS, an advanced AI voice assistant. "
+                "You are helpful, concise, and knowledgeable. "
+                "Respond naturally and conversationally. Keep responses under 200 words unless asked for detail. "
+                "If you can't answer something, be honest about it."
+            )},
         ]
 
-        # TODO: Load recent conversation history from DB
-        # For now, just the current message
+        # Load conversation history from DB
+        if conversation_id and user_id:
+            result = await db.execute(
+                select(Message)
+                .where(
+                    Message.conversation_id == conversation_id,
+                )
+                .order_by(Message.created_at.asc())
+                .limit(50)
+            )
+            history = result.scalars().all()
+            for msg in history:
+                messages.append({"role": msg.role, "content": msg.content})
+
+        # Append user message
         messages.append({"role": "user", "content": message})
 
         # Get LLM response
@@ -54,22 +63,36 @@ class ChatService:
     async def process_message_stream(
         self,
         message: str,
+        db: AsyncSession,
         conversation_id: Optional[UUID] = None,
         user_id: Optional[UUID] = None,
         temperature: float = 0.3,
         max_tokens: int = 1024,
     ):
-        """Process a message and stream the response."""
         messages = [
-            {"role": "system", "content": self.SYSTEM_PROMPT},
-            {"role": "user", "content": message},
+            {"role": "system", "content": (
+                "You are JARVIS, an advanced AI voice assistant. "
+                "You are helpful, concise, and knowledgeable. "
+                "Respond naturally and conversationally. Keep responses under 200 words unless asked for detail."
+            )},
         ]
+
+        if conversation_id and user_id:
+            result = await db.execute(
+                select(Message)
+                .where(Message.conversation_id == conversation_id)
+                .order_by(Message.created_at.asc())
+                .limit(50)
+            )
+            for msg in result.scalars().all():
+                messages.append({"role": msg.role, "content": msg.content})
+
+        messages.append({"role": "user", "content": message})
 
         async for chunk in self.llm.complete_stream(messages, temperature, max_tokens):
             yield chunk
 
 
-# Global instance
 _chat_service: Optional[ChatService] = None
 
 
