@@ -1,0 +1,52 @@
+# ── Core ──
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+
+# ── Database ──
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.1
+psycopg2-binary==2.9.10
+
+# ── Authentication ──
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.1
+python-multipart==0.0.20
+
+# ── Redis ──
+redis[hiredis]==5.2.1
+
+# ── LLM Providers ──
+openai==1.59.8
+google-generativeai==0.8.4
+
+# ── Voice ──
+faster-whisper==1.1.1
+numpy==1.26.4
+soundfile==0.12.1
+gTTS==2.5.4
+SpeechRecognition==3.11.0
+vosk==0.3.45
+
+# ── Observability ──
+loguru==0.7.3
+opentelemetry-api==1.29.0
+opentelemetry-sdk==1.29.0
+opentelemetry-exporter-otlp-proto-http==1.29.0
+opentelemetry-instrumentation-fastapi==0.50b0
+
+# ── Memory / Vector Search ──
+sentence-transformers==3.4.1
+
+# ── MCP ──
+mcp==1.2.0
+
+# ── Misc ──
+httpx==0.28.1
+orjson==3.10.13
+python-magic==0.4.27
+filetype==1.2.0
