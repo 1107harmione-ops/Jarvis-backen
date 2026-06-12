@@ -165,11 +165,11 @@ async def health():
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="index.html")
 
 @app.get("/knowledge", response_class=HTMLResponse)
 async def knowledge_page(request: Request):
-    return templates.TemplateResponse("knowledge.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="knowledge.html")
 
 
 # ─── Chat ───
