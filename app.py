@@ -397,6 +397,225 @@ def transcribe_status():
     return jsonify(info)
 
 
+# ─── Voice Chat (Button-Triggered, No Wake Word) ─────────────────────────────
+# Flow: User taps button → records until silence/button release
+#       → client sends audio here → server transcribes → orchestrator → reply
+# No wake word: recording only begins when user explicitly presses the button.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _do_transcribe(audio_bytes: bytes) -> str:
+    """Transcribe audio bytes with full fallback chain (faster-whisper → lite → vosk)."""
+    if transcribe_wav is None:
+        return ""
+    try:
+        text = transcribe_wav(audio_bytes)
+        if not text and _stt_mode.startswith("faster-whisper") and "_lite_transcribe_wav" in globals():
+            text = globals()["_lite_transcribe_wav"](audio_bytes)
+        if not text and _vosk_ready:
+            from speech.vosk_stt import transcribe_wav as vosk_fallback
+            text = vosk_fallback(audio_bytes)
+        return text or ""
+    except Exception as e:
+        logger.error("STT transcription error: %s", e)
+        return ""
+
+
+@app.route("/voice-chat", methods=["POST"])
+@limiter.limit("30 per minute")
+def voice_chat():
+    """
+    Button-triggered voice chat — multipart audio file upload.
+    No wake word. Recording starts only when the user taps the button.
+    """
+    if transcribe_wav is None:
+        return jsonify({
+            "error": "Speech recognition not available on this server.",
+            "transcript": "", "reply": ""
+        }), 503
+
+    if "file" not in request.files and "audio" not in request.files:
+        return jsonify({
+            "error": "No audio file provided.", "transcript": "", "reply": ""
+        }), 400
+        
+    file = request.files.get("file") or request.files.get("audio")
+    audio_bytes = file.read()
+    if not audio_bytes:
+        return jsonify({
+            "error": "Empty audio file received.", "transcript": "", "reply": ""
+        }), 400
+
+    start = time.time()
+
+    # Step 1: Transcribe
+    try:
+        transcript = _do_transcribe(audio_bytes)
+    except Exception as e:
+        logger.error("voice-chat transcribe error: %s", e)
+        return jsonify({
+            "error": f"Transcription failed: {e}", "transcript": "", "reply": ""
+        }), 500
+
+    if not transcript or not transcript.strip():
+        return jsonify({
+            "transcript": "",
+            "reply": "I didn't catch that. Please tap the button and speak again.",
+            "agent": "stt",
+            "metadata": {},
+            "time_ms": int((time.time() - start) * 1000),
+            "status": "no_speech",
+            "error": "",
+        })
+
+    logger.info("voice-chat | transcript=%s", transcript[:80])
+
+    # Step 2: Process through orchestrator
+    try:
+        result = _orchestrator.run(transcript.strip())
+        reply = result.get("response", "")
+        agent_used = result.get("agent", "chat")
+        metadata = result.get("metadata", {})
+        elapsed_ms = int((time.time() - start) * 1000)
+        logger.info("voice-chat | agent=%s time=%dms", agent_used, elapsed_ms)
+        return jsonify({
+            "transcript": transcript,
+            "reply": str(reply),
+            "agent": agent_used,
+            "image_url": metadata.get("image_url"),
+            "filepath": metadata.get("filepath"),
+            "sources": metadata.get("sources"),
+            "execution_output": metadata.get("execution_output"),
+            "task": metadata.get("task"),
+            "target": metadata.get("target"),
+            "compound_execution": metadata.get("compound_execution"),
+            "metadata": metadata,
+            "time_ms": elapsed_ms,
+            "status": "success" if result.get("success", True) else "error",
+            "error": "",
+        })
+    except Exception as e:
+        logger.error("voice-chat orchestrator error: %s", e)
+        return jsonify({
+            "error": str(e),
+            "transcript": transcript,
+            "reply": "I encountered an error processing your request.",
+        }), 500
+
+
+@app.route("/voice-chat/json", methods=["POST"])
+@limiter.limit("30 per minute")
+def voice_chat_json():
+    """
+    Button-triggered voice chat — JSON body with base64-encoded audio.
+    """
+    if transcribe_wav is None:
+        return jsonify({
+            "error": "Speech recognition not available.", "transcript": "", "reply": ""
+        }), 503
+
+    data = request.get_json(silent=True) or {}
+    audio_b64 = data.get("audio", "").strip()
+    session_id = data.get("session_id", "").strip()
+
+    if not audio_b64:
+        return jsonify({
+            "error": "No audio provided. Send base64-encoded audio in the 'audio' field.",
+            "transcript": "", "reply": ""
+        }), 400
+
+    import base64
+    try:
+        audio_bytes = base64.b64decode(audio_b64)
+    except Exception:
+        return jsonify({
+            "error": "Invalid base64 audio data.", "transcript": "", "reply": ""
+        }), 400
+
+    if not audio_bytes:
+        return jsonify({
+            "error": "Empty audio after decoding.", "transcript": "", "reply": ""
+        }), 400
+
+    start = time.time()
+
+    # Step 1: Transcribe
+    try:
+        transcript = _do_transcribe(audio_bytes)
+    except Exception as e:
+        logger.error("voice-chat/json transcribe error: %s", e)
+        return jsonify({
+            "error": f"Transcription failed: {e}", "transcript": "", "reply": ""
+        }), 500
+
+    if not transcript or not transcript.strip():
+        return jsonify({
+            "transcript": "",
+            "reply": "I didn't catch that. Please tap the button and speak again.",
+            "agent": "stt",
+            "metadata": {},
+            "time_ms": int((time.time() - start) * 1000),
+            "status": "no_speech",
+            "error": "",
+        })
+
+    logger.info("voice-chat/json | transcript=%s", transcript[:80])
+
+    # Step 2: Process through orchestrator
+    try:
+        result = _orchestrator.run(transcript.strip(), session_id=session_id)
+        reply = result.get("response", "")
+        agent_used = result.get("agent", "chat")
+        metadata = result.get("metadata", {})
+        elapsed_ms = int((time.time() - start) * 1000)
+        logger.info("voice-chat/json | agent=%s time=%dms", agent_used, elapsed_ms)
+        return jsonify({
+            "transcript": transcript,
+            "reply": str(reply),
+            "agent": agent_used,
+            "image_url": metadata.get("image_url"),
+            "filepath": metadata.get("filepath"),
+            "sources": metadata.get("sources"),
+            "execution_output": metadata.get("execution_output"),
+            "task": metadata.get("task"),
+            "target": metadata.get("target"),
+            "compound_execution": metadata.get("compound_execution"),
+            "metadata": metadata,
+            "time_ms": elapsed_ms,
+            "status": "success" if result.get("success", True) else "error",
+            "error": "",
+        })
+    except Exception as e:
+        logger.error("voice-chat/json orchestrator error: %s", e)
+        return jsonify({
+            "error": str(e),
+            "transcript": transcript,
+            "reply": "I encountered an error processing your request.",
+        }), 500
+
+
+@app.route("/voice-chat/status", methods=["GET"])
+def voice_chat_status():
+    """Check if button-triggered voice chat is available on this server."""
+    stt_ready = transcribe_wav is not None
+    return jsonify({
+        "available": stt_ready,
+        "stt_mode": _stt_mode,
+        "vosk_fallback": _vosk_ready,
+        "wake_word_enabled": False,
+        "mode": "button_triggered",
+        "endpoints": {
+            "file_upload": "POST /voice-chat       (multipart/form-data, field: file/audio)",
+            "base64_json": "POST /voice-chat/json  (application/json,    field: audio)",
+            "status":      "GET  /voice-chat/status",
+        },
+        "message": (
+            "Ready. Tap button to start, speak, stop recording — reply returned instantly."
+            if stt_ready else
+            "STT engine not loaded. Check server logs."
+        ),
+    })
+
+
 @app.route("/memory/save", methods=["POST"])
 def memory_save():
     data = request.json or {}

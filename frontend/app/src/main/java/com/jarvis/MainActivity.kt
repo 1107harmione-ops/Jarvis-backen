@@ -72,7 +72,7 @@ import kotlin.random.Random
 class MainActivity : ComponentActivity() {
     private var wsClient: WebSocketClient? = null
     private val adminClient = AdminClient()
-    private var autoListenEnabled = true
+    private var autoListenEnabled = false
     private var healthCheckJob: Job? = null
     private var speechRecognizer: SpeechRecognizer? = null
     private var recognitionIntent: Intent? = null
@@ -343,9 +343,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        autoListenEnabled = true
+        autoListenEnabled = false
         if (speechRecognizer == null) setupSpeechRecognizer()
-        scheduleNextVoice(600L)
     }
 
     override fun onPause() {
@@ -445,7 +444,16 @@ class MainActivity : ComponentActivity() {
     }
 
     fun doVoiceInput() {
-        if (isVoiceActive) return
+        if (isVoiceActive) {
+            isVoiceActive = false
+            ChatState.isListening = false
+            try {
+                speechRecognizer?.stopListening()
+            } catch (e: Exception) {
+                Log.e(TAG, "Stop listening failed", e)
+            }
+            return
+        }
         if (!ensureAudioPermission()) return
 
         if (useAudioFallbackTranscription) {
@@ -518,27 +526,9 @@ class MainActivity : ComponentActivity() {
         ChatState.isListening = false
         val transcript = rawTranscript.trim()
         if (transcript.isBlank()) {
-            if (autoListenEnabled) scheduleNextVoice(900L)
             return
         }
-
-        val wakeCommand = commandAfterWakeWord(transcript)
-        if (wakeCommand != null) {
-            wakeForNextCommand()
-            if (wakeCommand.isBlank()) {
-                ChatState.addSystemMessage("Jarvis awake")
-                Toast.makeText(this, "Listening", Toast.LENGTH_SHORT).show()
-            } else {
-                dispatchVoiceCommand(wakeCommand)
-            }
-        } else if (ChatState.pendingAdminAuth || ChatState.adminMode || isWakeWindowActive()) {
-            dispatchVoiceCommand(transcript)
-        } else {
-            Log.d(TAG, "Ignored fallback speech before wake word: $transcript")
-            ChatState.addLog("Ignored fallback before wake word: $transcript")
-        }
-
-        if (autoListenEnabled) scheduleNextVoice(if (ChatState.isAwake) 700L else 1400L)
+        dispatchVoiceCommand(transcript)
     }
 
     private suspend fun capturePcmAudio(durationMs: Long): ByteArray? = withContext(Dispatchers.IO) {
