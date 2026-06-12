@@ -148,11 +148,12 @@ def chat_process():
 
 @app.route("/agent", methods=["POST"])
 def agent_direct():
-    data = request.json or {}
+    # Use silent=True so missing/invalid Content-Type doesn't raise an exception
+    data = request.get_json(silent=True) or {}
     message = data.get("message", "").strip()
     agent_name = data.get("agent", "").strip()
     if not message:
-        return jsonify({"error": "message required"})
+        return jsonify({"error": "message required"}), 400
     try:
         if agent_name:
             from agents import CodingAgent, ImageAgent, TaskAgent, ResearchAgent, SearchAgent, ReasoningAgent
@@ -161,12 +162,13 @@ def agent_direct():
             if cls:
                 result = cls().run(message, data.get("parameters", {}))
                 return jsonify({"reply": result.get("result", ""), "agent": result.get("agent"), "metadata": result.get("metadata", {}), "status": "success" if result.get("success") else "error"})
-            return jsonify({"error": f"Unknown agent: {agent_name}"})
+            return jsonify({"error": f"Unknown agent: {agent_name}"}), 400
         else:
             result = _orchestrator.run(message)
             return jsonify({"reply": result.get("response", ""), "agent": result.get("agent"), "metadata": result.get("metadata", {}), "time_ms": result.get("time_ms", 0), "status": "success" if result.get("success") else "error"})
     except Exception as e:
-        return jsonify({"error": str(e)})
+        logger.error("Agent direct error: %s", e)
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/agents", methods=["GET"])
 def list_agents():
@@ -318,7 +320,10 @@ def shutdown_backend():
     if token != shutdown_token:
         return jsonify({"error": "invalid token"}), 403
     logger.info("Shutdown requested — terminating gracefully")
-    os.kill(os.getpid(), signal.SIGTERM)
+    # Return response BEFORE sending SIGTERM so the client receives it
+    import threading
+    threading.Timer(0.5, lambda: os.kill(os.getpid(), signal.SIGTERM)).start()
+    return jsonify({"status": "shutting down"}), 202
 
 
 @app.route("/transcribe", methods=["POST"])
@@ -335,14 +340,15 @@ def transcribe_audio():
         text = transcribe_wav(audio_bytes)
         # Fallback chain: faster-whisper → lite → vosk
         if not text:
-            if _stt_mode.startswith("faster-whisper") and "_lite_transcribe_wav" in dir():
-                from speech.lite_stt import transcribe_wav as lite_fallback
-                text = lite_fallback(audio_bytes)
+            # Use globals() — _lite_transcribe_wav is a module-level variable, not local
+            if _stt_mode.startswith("faster-whisper") and "_lite_transcribe_wav" in globals():
+                text = globals()["_lite_transcribe_wav"](audio_bytes)
             if not text and _vosk_ready:
                 from speech.vosk_stt import transcribe_wav as vosk_fallback
                 text = vosk_fallback(audio_bytes)
-        return jsonify({"text": text, "error": ""})
+        return jsonify({"text": text or "", "error": ""})
     except Exception as e:
+        logger.error("Transcribe error: %s", e)
         return jsonify({"error": str(e), "text": ""})
 
 
@@ -362,14 +368,14 @@ def transcribe_json():
     try:
         text = transcribe_wav(audio_bytes)
         if not text:
-            if _stt_mode.startswith("faster-whisper") and "_lite_transcribe_wav" in dir():
-                from speech.lite_stt import transcribe_wav as lite_fallback
-                text = lite_fallback(audio_bytes)
+            if _stt_mode.startswith("faster-whisper") and "_lite_transcribe_wav" in globals():
+                text = globals()["_lite_transcribe_wav"](audio_bytes)
             if not text and _vosk_ready:
                 from speech.vosk_stt import transcribe_wav as vosk_fallback
                 text = vosk_fallback(audio_bytes)
-        return jsonify({"text": text, "error": ""})
+        return jsonify({"text": text or "", "error": ""})
     except Exception as e:
+        logger.error("Transcribe JSON error: %s", e)
         return jsonify({"error": str(e), "text": ""})
 
 

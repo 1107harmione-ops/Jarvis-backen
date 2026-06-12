@@ -128,9 +128,10 @@ app.add_middleware(
         "http://127.0.0.1",
         "http://10.0.2.2",
     ],
-    allow_origin_regex=".*",
-    allow_credentials=True,
-    allow_headers=["Content-Type"],
+    # NOTE: allow_origin_regex=".*" was removed — it bypassed the whitelist
+    # and combined with allow_credentials=True created a security vulnerability.
+    allow_credentials=False,
+    allow_headers=["Content-Type", "Authorization"],
     allow_methods=["GET", "POST", "OPTIONS", "DELETE"],
 )
 
@@ -355,15 +356,16 @@ async def transcribe_audio(file: UploadFile = File(...)):
     try:
         text = transcribe_wav(audio_bytes)
         if not text:
-            if _stt_mode.startswith("faster-whisper") and "_lite_transcribe_wav" in dir():
-                from speech.lite_stt import transcribe_wav as lite_fallback
-                text = lite_fallback(audio_bytes)
+            # Use globals() — _lite_transcribe_wav is a module-level variable, not local
+            if _stt_mode.startswith("faster-whisper") and "_lite_transcribe_wav" in globals():
+                text = globals()["_lite_transcribe_wav"](audio_bytes)
             if not text and _vosk_ready:
                 from speech.vosk_stt import transcribe_wav as vosk_fallback
                 text = vosk_fallback(audio_bytes)
         return {"text": text or "", "error": ""}
     except Exception as e:
-        return JSONResponse(content={"error": str(e), "text": ""})
+        logger.error("Transcribe error: %s", e)
+        return JSONResponse(content={"error": str(e), "text": ""}, status_code=500)
 
 
 @app.post("/transcribe/json")
@@ -386,15 +388,15 @@ async def transcribe_json(request: Request):
     try:
         text = transcribe_wav(audio_bytes)
         if not text:
-            if _stt_mode.startswith("faster-whisper") and "_lite_transcribe_wav" in dir():
-                from speech.lite_stt import transcribe_wav as lite_fallback
-                text = lite_fallback(audio_bytes)
+            if _stt_mode.startswith("faster-whisper") and "_lite_transcribe_wav" in globals():
+                text = globals()["_lite_transcribe_wav"](audio_bytes)
             if not text and _vosk_ready:
                 from speech.vosk_stt import transcribe_wav as vosk_fallback
                 text = vosk_fallback(audio_bytes)
         return {"text": text or "", "error": ""}
     except Exception as e:
-        return JSONResponse(content={"error": str(e), "text": ""})
+        logger.error("Transcribe JSON error: %s", e)
+        return JSONResponse(content={"error": str(e), "text": ""}, status_code=500)
 
 
 @app.get("/transcribe/status")
@@ -467,7 +469,13 @@ async def auto_skills_list():
 
 @app.post("/auto-skills/search")
 async def auto_skills_search(request: Request):
-    data = {} if not request.headers.get("content-type") else await request.json() if request.headers.get("content-type") == "application/json" else {}
+    try:
+        if request.headers.get("content-type", "").startswith("application/json"):
+            data = await request.json()
+        else:
+            data = {}
+    except Exception:
+        data = {}
     if isinstance(data, str):
         try:
             data = json.loads(data)

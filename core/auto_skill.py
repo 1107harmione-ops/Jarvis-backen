@@ -3,10 +3,14 @@ import os
 import re
 import time
 import hashlib
+import logging
+import threading
 from datetime import datetime
 
-from core.config import GROQ_API_BASE, GROQ_CHAT_API_KEY, GROQ_CHAT_MODEL
+from core.provider_manager import llm_completion
 from core.data_center import DataCenter
+
+logger = logging.getLogger("auto_skill")
 
 SKILLS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "auto_skills")
 INDEX_FILE = os.path.join(SKILLS_DIR, "index.json")
@@ -30,6 +34,7 @@ class SkillLibrary:
         os.makedirs(SKILLS_DIR, exist_ok=True)
         self._index = self._load_index()
         self._datacenter = DataCenter()
+        self._lock = threading.Lock()
 
     def _load_index(self):
         if os.path.exists(INDEX_FILE):
@@ -41,8 +46,11 @@ class SkillLibrary:
         return {"skills": [], "last_learned": None}
 
     def _save_index(self):
-        with open(INDEX_FILE, "w", encoding="utf-8") as f:
+        """Atomically save the index to avoid corruption on crash."""
+        tmp = INDEX_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(self._index, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, INDEX_FILE)
 
     def _skill_path(self, skill_id):
         return os.path.join(SKILLS_DIR, f"{skill_id}.json")
@@ -64,8 +72,11 @@ class SkillLibrary:
     def get_by_id(self, skill_id):
         path = self._skill_path(skill_id)
         if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                return None
         return None
 
     def get_relevant(self, query, limit=3):
@@ -93,8 +104,9 @@ class SkillLibrary:
         path = self._skill_path(skill_id)
         if os.path.exists(path):
             os.remove(path)
-        self._index["skills"] = [s for s in self._index["skills"] if s["id"] != skill_id]
-        self._save_index()
+        with self._lock:
+            self._index["skills"] = [s for s in self._index["skills"] if s["id"] != skill_id]
+            self._save_index()
         return True
 
     def maybe_learn(self, query, response, agent, success, metadata=None):
@@ -121,32 +133,49 @@ class SkillLibrary:
         path = self._skill_path(skill_id)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(skill, f, indent=2, ensure_ascii=False)
-        self._index["skills"].append({"id": skill_id, "name": skill["name"], "description": skill["description"], "category": skill.get("category", "general"), "created_at": skill["created_at"]})
-        self._index["last_learned"] = skill["created_at"]
-        self._save_index()
-        self._datacenter.add_entry(topic=f"[Skill] {skill['name']}", summary=skill["description"], content=json.dumps(skill, indent=2), category="skill", tags=skill.get("trigger_phrases", []) + [skill.get("category", "general")], confidence=0.7)
-        pass  # README update not applicable on Render
-        print(f"[AutoSkill] Learned new skill: {skill['name']} ({skill_id})")
+        with self._lock:
+            self._index["skills"].append({
+                "id": skill_id,
+                "name": skill["name"],
+                "description": skill["description"],
+                "category": skill.get("category", "general"),
+                "created_at": skill["created_at"],
+            })
+            self._index["last_learned"] = skill["created_at"]
+            self._save_index()
+        try:
+            self._datacenter.add_entry(
+                topic=f"[Skill] {skill['name']}",
+                summary=skill["description"],
+                content=json.dumps(skill, indent=2),
+                category="skill",
+                tags=skill.get("trigger_phrases", []) + [skill.get("category", "general")],
+                confidence=0.7,
+            )
+        except Exception as e:
+            logger.warning("DataCenter entry failed: %s", e)
+        logger.info("[AutoSkill] Learned new skill: %s (%s)", skill["name"], skill_id)
         return skill
 
     def _analyze(self, query, response, agent, metadata):
-        prompt = (f"Task Query: {query}\nAgent Used: {agent}\nAgent Response: {response[:1500]}\n"
-                  f"Metadata: {json.dumps(metadata or {})[:500]}\n\nExtract a reusable skill from this completed task.")
+        prompt = (
+            f"Task Query: {query}\nAgent Used: {agent}\n"
+            f"Agent Response: {response[:1500]}\n"
+            f"Metadata: {json.dumps(metadata or {})[:500]}\n\n"
+            "Extract a reusable skill from this completed task."
+        )
         try:
-            import requests
-            r = requests.post(f"{GROQ_API_BASE}/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_CHAT_API_KEY}", "Content-Type": "application/json"},
-                json={"model": GROQ_CHAT_MODEL, "messages": [
-                    {"role": "system", "content": _ANALYST_SYSTEM},
-                    {"role": "user", "content": prompt},
-                ], "temperature": 0.3, "max_tokens": 500}, timeout=10)
-            if r.status_code == 200:
-                raw = r.json()["choices"][0]["message"]["content"]
-                m = re.search(r"\{.*\}", raw, re.DOTALL)
-                if m:
-                    return json.loads(m.group())
+            raw = llm_completion(
+                messages=[{"role": "user", "content": prompt}],
+                system=_ANALYST_SYSTEM,
+                temperature=0.3,
+                max_tokens=500,
+            )
+            m = re.search(r"\{.*\}", raw, re.DOTALL)
+            if m:
+                return json.loads(m.group())
         except Exception as e:
-            print(f"[AutoSkill] Analysis failed: {e}")
+            logger.warning("[AutoSkill] Analysis failed: %s", e)
         return None
 
     def _exists(self, name, phrases):

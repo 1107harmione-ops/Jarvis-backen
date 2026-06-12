@@ -175,14 +175,13 @@ class TaskAgent(BaseAgent):
         parameters = parameters or {}
         q = query.lower().strip()
 
-        compound_parts = [s.strip() for s in q.split(" and ") if s.strip()]
-        compound_targets = [s.strip() for s in query.split(" and ") if s.strip()]
+        # Split on " and " case-insensitively, preserving original casing in targets
+        import re as _re
+        parts = _re.split(r'\s+and\s+', query, flags=_re.IGNORECASE)
+        parts = [p.strip() for p in parts if p.strip()]
 
-        if len(compound_parts) > 1:
-            results = []
-            for i in range(len(compound_parts)):
-                r = self._process_single(compound_targets[i], parameters)
-                results.append(r)
+        if len(parts) > 1:
+            results = [self._process_single(p, parameters) for p in parts]
             return self._merge_compound_results(results)
 
         return self._process_single(query, parameters)

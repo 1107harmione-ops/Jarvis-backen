@@ -209,6 +209,7 @@ def _chat_response(query: str, knowledge_context: str = "", session_id: str = ""
     )
     if response.startswith("[All LLM providers"):
         response = "I'm having trouble connecting to my neural core. Please check my API connections."
+    # Store to memory (session-aware)
     if session_id:
         try:
             _mem.add_with_session("user", query, session_id)
@@ -250,7 +251,7 @@ class Orchestrator:
         if knowledge_context:
             parameters["knowledge_context"] = knowledge_context
 
-        print(f"[Orchestrator] '{query[:60]}' -> agent={primary}")
+        logger.info("[Orchestrator] '%s' -> agent=%s", query[:60], primary)
 
         # ── V3: Goal / autonomous workflow ──
         if primary == "goal":
@@ -260,7 +261,8 @@ class Orchestrator:
                 response_text = result.get("summary", "") or result.get("status", "Goal processing complete.")
                 success = result.get("status") != "failed"
                 metadata = {"goal_id": result.get("goal_id"), "tasks_completed": result.get("tasks_completed", 0)}
-                print(f"[Orchestrator] Goal complete: {result.get('status')} | {metadata.get('tasks_completed', 0)} tasks")
+                logger.info("[Orchestrator] Goal complete: %s | %d tasks",
+                            result.get('status'), metadata.get('tasks_completed', 0))
             except Exception as e:
                 logger.error("WorkflowEngine error: %s", e)
                 response_text = f"I encountered an error while processing your goal: {e}"
@@ -268,9 +270,11 @@ class Orchestrator:
                 metadata = {}
 
         elif primary == "chat":
+            # _chat_response already stores to memory for chat; skip double-store below
             response_text = _chat_response(query, knowledge_context, session_id)
             metadata = {}
             success = True
+
         else:
             agent = _get_agent(primary)
             if not agent:
@@ -301,8 +305,8 @@ class Orchestrator:
                     except Exception:
                         pass
 
-        # ── Memory ──
-        if response_text and session_id:
+        # ── Memory (for non-chat agents only; chat already stored in _chat_response) ──
+        if response_text and session_id and primary not in ("chat", "goal"):
             _mem.add_with_session("user", query, session_id)
             _mem.add_with_session("assistant", response_text[:500], session_id)
             try:

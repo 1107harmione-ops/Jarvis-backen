@@ -57,14 +57,16 @@ def plan(goal: str, context: Optional[dict] = None) -> list:
         [{"id": int, "agent": str, "goal": str, "parameters": dict, "depends_on": int}]
     """
     messages = [{"role": "user", "content": goal}]
+
+    # Build a single system prompt; append context if provided
+    system_prompt = PLANNER_SYSTEM_PROMPT
     if context:
         context_str = json.dumps(context, indent=2)
-        messages.insert(0, {"role": "system",
-                            "content": f"User context:\n{context_str}\n\n{PLANNER_SYSTEM_PROMPT}"})
+        system_prompt = f"User context:\n{context_str}\n\n{PLANNER_SYSTEM_PROMPT}"
 
     raw = llm_completion(
         messages=messages,
-        system=PLANNER_SYSTEM_PROMPT if not context else None,
+        system=system_prompt,
         temperature=0.1,
         max_tokens=1500,
     )
@@ -73,7 +75,6 @@ def plan(goal: str, context: Optional[dict] = None) -> list:
         if m:
             data = json.loads(m.group())
             tasks = data.get("tasks", [])
-            # Validate
             validated = []
             for t in tasks:
                 if all(k in t for k in ("id", "agent", "goal")):

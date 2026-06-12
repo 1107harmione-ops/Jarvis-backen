@@ -17,6 +17,7 @@ class WorkflowEngine:
     """Orchestrates the full goal lifecycle: Plan → Execute → Verify → Recover → Complete."""
 
     def __init__(self, max_retries: int = 2):
+        self.max_retries = max_retries
         self.goal_manager = GoalManager()
         self.task_queue = TaskQueue()
         self.verifier = VerifierAgent(max_retries=max_retries)
@@ -94,6 +95,7 @@ class WorkflowEngine:
             "goal_id": goal.id,
             "status": status,
             "result": goal.result,
+            "summary": goal.result,   # alias expected by Orchestrator.run()
             "tasks_total": total,
             "tasks_completed": success_count,
             "tasks_failed": total - success_count,

@@ -1,9 +1,11 @@
+import logging
 import re
 from agents.base_agent import BaseAgent
 from core.config import SERP_API_KEY
 import requests
 
 _http = requests.Session()
+logger = logging.getLogger("search_agent")
 
 class SearchAgent(BaseAgent):
     name = "SearchAgent"
@@ -26,8 +28,13 @@ class SearchAgent(BaseAgent):
 
     def _general_search(self, query: str) -> dict:
         data = self._serp(query)
+        if data.get("_error"):
+            return self._err(f"Search unavailable: {data['_error']}")
         answer = self._extract_best_answer(data, query)
-        sources = [{"title": item.get("title", ""), "url": item.get("link", ""), "snippet": item.get("snippet", "")} for item in data.get("organic_results", [])[:3]]
+        sources = [
+            {"title": item.get("title", ""), "url": item.get("link", ""), "snippet": item.get("snippet", "")}
+            for item in data.get("organic_results", [])[:3]
+        ]
         return self._ok(answer, metadata={"task": "general_search", "query": query, "sources": sources})
 
     def _news_search(self, query: str) -> dict:
@@ -86,6 +93,9 @@ class SearchAgent(BaseAgent):
         return self._ok(answer, metadata={"task": "sports_search"})
 
     def _serp(self, query: str, params: dict = None) -> dict:
+        if not SERP_API_KEY:
+            logger.warning("SERP_API_KEY not configured — web search unavailable")
+            return {"_error": "SERP_API_KEY not set"}
         p = {"q": query, "api_key": SERP_API_KEY}
         if params:
             p.update(params)
@@ -93,8 +103,9 @@ class SearchAgent(BaseAgent):
             r = _http.get("https://serpapi.com/search", params=p, timeout=10)
             if r.status_code == 200:
                 return r.json()
-        except Exception:
-            pass
+            logger.warning("SerpAPI returned HTTP %d for query: %s", r.status_code, query)
+        except Exception as e:
+            logger.error("SerpAPI request failed: %s", e)
         return {}
 
     def _extract_best_answer(self, data: dict, query: str) -> str:

@@ -60,12 +60,19 @@ class CodingAgent(BaseAgent):
             if "print(" in query or "def " in query or "import " in query:
                 code = query
                 lang = "python"
-        if code and lang in ("python", "py", "python3", ""):
+        # Only execute if we positively identify Python (empty string is ambiguous)
+        if code and lang in ("python", "py", "python3"):
             exec_result = self._execute_python(code, timeout=10)
-            explanation = self._ask([{"role": "user", "content": f"This Python code was run:\n```python\n{code}\n```\nOutput was:\n{exec_result}\n\nExplain what the code does and what the output means."}], system=self.CODE_SYSTEM)
+            explanation = self._ask(
+                [{"role": "user", "content": f"This Python code was run:\n```python\n{code}\n```\nOutput was:\n{exec_result}\n\nExplain what the code does and what the output means."}],
+                system=self.CODE_SYSTEM
+            )
             return self._ok(explanation, metadata={"task": "run_code", "execution_output": exec_result, "code": code})
         else:
-            response = self._ask([{"role": "user", "content": f"Explain the output/behavior of this code:\n{query}"}], system=self.CODE_SYSTEM)
+            response = self._ask(
+                [{"role": "user", "content": f"Explain the output/behavior of this code:\n{query}"}],
+                system=self.CODE_SYSTEM
+            )
             return self._ok(response, metadata={"task": "explain_output"})
 
     def _extract_code(self, text: str):
@@ -75,19 +82,24 @@ class CodingAgent(BaseAgent):
         return None, None
 
     def _execute_python(self, code: str, timeout: int = 10) -> str:
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
                 f.write(code)
                 tmp_path = f.name
-            result = subprocess.run([sys.executable, tmp_path], capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(
+                [sys.executable, tmp_path],
+                capture_output=True, text=True, timeout=timeout
+            )
             output = result.stdout.strip() or result.stderr.strip() or "(no output)"
         except subprocess.TimeoutExpired:
             output = f"[Execution timed out after {timeout} seconds]"
         except Exception as e:
             output = f"[Execution error: {e}]"
         finally:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+            if tmp_path:  # Guard against NameError if file creation itself failed
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
         return output

@@ -3,7 +3,7 @@ goal_manager.py — Manages user goals and their lifecycle.
 
 A goal can span multiple tasks, sessions, and even survive restarts.
 """
-import json, logging, os, time, uuid
+import json, logging, os, time, uuid, threading
 from typing import Optional
 from datetime import datetime
 
@@ -63,6 +63,7 @@ class GoalManager:
     def __init__(self, filepath: str = GOALS_FILE):
         self.filepath = filepath
         self.goals: dict[str, Goal] = {}
+        self._lock = threading.Lock()
         self._ensure_dir()
         self._load()
 
@@ -84,8 +85,10 @@ class GoalManager:
     def _save(self):
         try:
             data = [g.to_dict() for g in self.goals.values()]
-            with open(self.filepath, "w") as f:
+            tmp = self.filepath + ".tmp"
+            with open(tmp, "w") as f:
                 json.dump(data, f, indent=2)
+            os.replace(tmp, self.filepath)  # atomic rename
         except Exception as e:
             logger.error("Failed to save goals: %s", e)
 
@@ -93,8 +96,9 @@ class GoalManager:
         g = Goal(description)
         if context:
             g.context = context
-        self.goals[g.id] = g
-        self._save()
+        with self._lock:
+            self.goals[g.id] = g
+            self._save()
         logger.info("Created goal: %s", g)
         return g
 
@@ -102,14 +106,15 @@ class GoalManager:
         return self.goals.get(goal_id)
 
     def update_goal(self, goal_id: str, **kwargs) -> Optional[Goal]:
-        g = self.goals.get(goal_id)
-        if not g:
-            return None
-        for k, v in kwargs.items():
-            if hasattr(g, k):
-                setattr(g, k, v)
-        g.updated_at = time.time()
-        self._save()
+        with self._lock:
+            g = self.goals.get(goal_id)
+            if not g:
+                return None
+            for k, v in kwargs.items():
+                if hasattr(g, k):
+                    setattr(g, k, v)
+            g.updated_at = time.time()
+            self._save()
         return g
 
     def list_goals(self, status: str = None, limit: int = 20) -> list:
@@ -120,10 +125,11 @@ class GoalManager:
         return [g.to_dict() for g in goals[:limit]]
 
     def delete_goal(self, goal_id: str) -> bool:
-        if goal_id in self.goals:
-            del self.goals[goal_id]
-            self._save()
-            return True
+        with self._lock:
+            if goal_id in self.goals:
+                del self.goals[goal_id]
+                self._save()
+                return True
         return False
 
     def cleanup_old(self, max_age_hours: int = 72):

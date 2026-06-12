@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import json
+import threading
 from datetime import datetime
 
 class Memory:
@@ -10,6 +11,7 @@ class Memory:
         os.makedirs(DATA_DIR, exist_ok=True)
         self.db_file = db_file or os.path.join(DATA_DIR, "jarvis_memory.db")
         os.makedirs(os.path.dirname(self.db_file), exist_ok=True)
+        self._lock = threading.Lock()
         self._init_db()
 
     def _init_db(self):
@@ -119,40 +121,66 @@ class Memory:
             cursor.execute("DELETE FROM task_log")
             conn.commit()
 
+    # ── Session Management ──
+
     def create_session(self, session_id, name=""):
+        """Create a session if it doesn't already exist."""
         with sqlite3.connect(self.db_file) as conn:
             cursor = conn.cursor()
             cursor.execute("INSERT OR IGNORE INTO sessions (id, name) VALUES (?, ?)", (session_id, name))
             conn.commit()
 
     def update_session(self, session_id, preview="", count=1):
+        """Update a session's metadata (last preview text and message count increment)."""
         with sqlite3.connect(self.db_file) as conn:
             cursor = conn.cursor()
-            cursor.execute("UPDATE sessions SET updated_at = CURRENT_TIMESTAMP, last_preview = ?, message_count = message_count + ? WHERE id = ?", (preview, count, session_id))
+            cursor.execute(
+                "UPDATE sessions SET updated_at = CURRENT_TIMESTAMP, last_preview = ?, "
+                "message_count = message_count + ? WHERE id = ?",
+                (preview, count, session_id)
+            )
             conn.commit()
 
     def add_with_session(self, role, content, session_id=None):
+        """Insert a chat message, optionally associated with a session."""
         with sqlite3.connect(self.db_file) as conn:
             cursor = conn.cursor()
             if session_id:
-                cursor.execute("INSERT INTO chat_history (role, content, session_id) VALUES (?, ?, ?)", (role, content, session_id))
+                cursor.execute(
+                    "INSERT INTO chat_history (role, content, session_id) VALUES (?, ?, ?)",
+                    (role, content, session_id)
+                )
             else:
                 cursor.execute("INSERT INTO chat_history (role, content) VALUES (?, ?)", (role, content))
             conn.commit()
 
     def get_sessions(self, limit=20):
+        """Return the most recently updated sessions."""
         with sqlite3.connect(self.db_file) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, name, created_at, updated_at, message_count, last_preview FROM sessions ORDER BY updated_at DESC LIMIT ?", (limit,))
-            return [{"id": r[0], "name": r[1], "created_at": r[2], "updated_at": r[3], "message_count": r[4], "last_preview": r[5]} for r in cursor.fetchall()]
+            cursor.execute(
+                "SELECT id, name, created_at, updated_at, message_count, last_preview "
+                "FROM sessions ORDER BY updated_at DESC LIMIT ?",
+                (limit,)
+            )
+            return [
+                {"id": r[0], "name": r[1], "created_at": r[2], "updated_at": r[3],
+                 "message_count": r[4], "last_preview": r[5]}
+                for r in cursor.fetchall()
+            ]
 
     def get_session_messages(self, session_id):
+        """Return all messages for a given session in chronological order."""
         with sqlite3.connect(self.db_file) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT role, content, timestamp FROM chat_history WHERE session_id = ? ORDER BY id ASC", (session_id,))
+            cursor.execute(
+                "SELECT role, content, timestamp FROM chat_history WHERE session_id = ? ORDER BY id ASC",
+                (session_id,)
+            )
             return [{"role": r[0], "content": r[1], "timestamp": r[2]} for r in cursor.fetchall()]
 
     def delete_session(self, session_id):
+        """Delete a session and all its associated messages."""
         with sqlite3.connect(self.db_file) as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM chat_history WHERE session_id = ?", (session_id,))
@@ -161,36 +189,3 @@ class Memory:
 
     def get(self, limit=20):
         return self.get_recent_chat(limit)
-
-    def create_session(self, session_id, name=""):
-        with sqlite3.connect(self.db_file) as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT OR IGNORE INTO sessions (id, name) VALUES (?, ?)", (session_id, name))
-            conn.commit()
-
-    def update_session(self, session_id, preview="", count=1):
-        with sqlite3.connect(self.db_file) as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE sessions SET updated_at = CURRENT_TIMESTAMP, last_preview = ?, message_count = message_count + ? WHERE id = ?", (preview, count, session_id))
-            conn.commit()
-
-    def add_with_session(self, role, content, session_id=None):
-        with sqlite3.connect(self.db_file) as conn:
-            cursor = conn.cursor()
-            if session_id:
-                cursor.execute("INSERT INTO chat_history (role, content, session_id) VALUES (?, ?, ?)", (role, content, session_id))
-            else:
-                cursor.execute("INSERT INTO chat_history (role, content) VALUES (?, ?)", (role, content))
-            conn.commit()
-
-    def get_sessions(self, limit=20):
-        with sqlite3.connect(self.db_file) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT id, name, created_at, updated_at, message_count, last_preview FROM sessions ORDER BY updated_at DESC LIMIT ?", (limit,))
-            return [{"id": r[0], "name": r[1], "created_at": r[2], "updated_at": r[3], "message_count": r[4], "last_preview": r[5]} for r in cursor.fetchall()]
-
-    def get_session_messages(self, session_id):
-        with sqlite3.connect(self.db_file) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT role, content, timestamp FROM chat_history WHERE session_id = ? ORDER BY id ASC", (session_id,))
-            return [{"role": r[0], "content": r[1], "timestamp": r[2]} for r in cursor.fetchall()]

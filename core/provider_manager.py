@@ -23,6 +23,8 @@ class ProviderStats:
     last_used: float = 0
     circuit_open: bool = False
     circuit_retry_at: float = 0
+    # Track consecutive failures (not cumulative) for circuit breaker
+    consecutive_failures: int = 0
 
 
 class Provider:
@@ -61,8 +63,10 @@ class Provider:
         if success:
             self.stats.success_count += 1
             self.stats.total_latency_ms += latency_ms
+            self.stats.consecutive_failures = 0   # reset on success
         else:
             self.stats.failure_count += 1
+            self.stats.consecutive_failures += 1
             self.stats.last_error = error
 
     def __repr__(self):
@@ -80,6 +84,8 @@ class GroqProvider(Provider):
         )
 
     def complete(self, messages, temperature=0.3, max_tokens=1024):
+        if not self.api_key:
+            return None
         start = time.time()
         try:
             url = f"{self.base_url.rstrip('/')}/chat/completions"
@@ -102,7 +108,11 @@ class GroqProvider(Provider):
         if not self.api_key:
             return False
         try:
-            r = self.session.get(f"{self.base_url.rstrip('/')}/models", timeout=5)
+            r = self.session.get(
+                f"{self.base_url.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=5
+            )
             return r.status_code == 200
         except Exception:
             return False
@@ -119,6 +129,8 @@ class GeminiProvider(Provider):
         )
 
     def complete(self, messages, temperature=0.3, max_tokens=1024):
+        if not self.api_key:
+            return None
         start = time.time()
         try:
             contents = []
@@ -135,7 +147,7 @@ class GeminiProvider(Provider):
                 parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])
                 text = parts[0].get("text", "").strip() if parts else ""
                 self._update_stats(True, (time.time() - start) * 1000)
-                return text
+                return text or None
             self._update_stats(False, error=f"HTTP {r.status_code}")
             return None
         except Exception as e:
@@ -143,7 +155,15 @@ class GeminiProvider(Provider):
             return None
 
     def health_check(self) -> bool:
-        return bool(self.api_key)
+        """Actually test connectivity to Gemini API."""
+        if not self.api_key:
+            return False
+        try:
+            url = f"{self.base_url}/models?key={self.api_key}"
+            r = self.session.get(url, timeout=5)
+            return r.status_code == 200
+        except Exception:
+            return False
 
 
 class OpenRouterProvider(Provider):
@@ -157,6 +177,8 @@ class OpenRouterProvider(Provider):
         )
 
     def complete(self, messages, temperature=0.3, max_tokens=1024):
+        if not self.api_key:
+            return None
         start = time.time()
         try:
             url = f"{self.base_url.rstrip('/')}/chat/completions"
@@ -177,7 +199,18 @@ class OpenRouterProvider(Provider):
             return None
 
     def health_check(self) -> bool:
-        return bool(self.api_key)
+        """Actually test connectivity to OpenRouter API."""
+        if not self.api_key:
+            return False
+        try:
+            r = self.session.get(
+                f"{self.base_url.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=5
+            )
+            return r.status_code == 200
+        except Exception:
+            return False
 
 
 class LocalDeepSeekProvider(Provider):
@@ -221,20 +254,23 @@ class LocalDeepSeekProvider(Provider):
 class ProviderManager:
     """Manages LLM providers with fallback chain and circuit breaker."""
 
+    # Open circuit after this many CONSECUTIVE failures (not cumulative)
+    _CIRCUIT_OPEN_THRESHOLD = 3
+    _CIRCUIT_BREAKER_TIMEOUT = 60  # seconds before retrying a failed provider
+
     def __init__(self):
         self.providers: list[Provider] = []
         self._init_providers()
-        self._circuit_breaker_timeout = 60  # seconds before retrying a failed provider
 
     def _init_providers(self):
-        providers = [
+        candidates = [
             GroqProvider(),
             GeminiProvider(),
             OpenRouterProvider(),
             LocalDeepSeekProvider(),
         ]
         # Only include providers with valid config
-        self.providers = [p for p in providers if p.api_key or p.name == "local"]
+        self.providers = [p for p in candidates if p.api_key or p.name == "local"]
         logger.info("ProviderManager: %d providers loaded: %s",
                     len(self.providers), [p.name for p in self.providers])
 
@@ -246,9 +282,12 @@ class ProviderManager:
             # Circuit breaker check
             if provider.stats.circuit_open:
                 if time.time() < provider.stats.circuit_retry_at:
+                    errors.append(f"{provider.name}: circuit open")
                     continue
-                provider.stats.circuit_open = False  # half-open
+                provider.stats.circuit_open = False  # half-open: allow one attempt
+                provider.stats.consecutive_failures = 0
 
+            # Model filter: skip if a specific model was requested and doesn't match
             if model and model != provider.model:
                 continue
 
@@ -258,15 +297,13 @@ class ProviderManager:
 
             errors.append(f"{provider.name}: {provider.stats.last_error}")
 
-            # Open circuit if failed
-            if provider.stats.circuit_open:
-                pass  # already open
-            elif provider.stats.failure_count >= 3:
+            # Open circuit based on CONSECUTIVE failures
+            if (not provider.stats.circuit_open and
+                    provider.stats.consecutive_failures >= self._CIRCUIT_OPEN_THRESHOLD):
                 provider.stats.circuit_open = True
-                provider.stats.circuit_retry_at = time.time() + self._circuit_breaker_timeout
-                logger.warning("Circuit opened for %s (retry at %s)",
-                               provider.name,
-                               provider.stats.circuit_retry_at)
+                provider.stats.circuit_retry_at = time.time() + self._CIRCUIT_BREAKER_TIMEOUT
+                logger.warning("Circuit opened for %s (retry at %.0f)",
+                               provider.name, provider.stats.circuit_retry_at)
 
         # All providers failed
         logger.error("All LLM providers failed: %s", "; ".join(errors))
@@ -285,7 +322,9 @@ class ProviderManager:
                 "circuit_open": p.stats.circuit_open,
                 "success_count": p.stats.success_count,
                 "failure_count": p.stats.failure_count,
-                "avg_latency_ms": round(p.stats.total_latency_ms / max(p.stats.success_count, 1), 1),
+                "avg_latency_ms": round(
+                    p.stats.total_latency_ms / max(p.stats.success_count, 1), 1
+                ),
             }
         return status
 
@@ -296,11 +335,12 @@ class ProviderManager:
             "priority": p.priority,
             "success_count": p.stats.success_count,
             "failure_count": p.stats.failure_count,
+            "consecutive_failures": p.stats.consecutive_failures,
             "circuit_open": p.stats.circuit_open,
         } for p in self.providers]
 
 
-# Global instance
+# Global singleton
 _provider_manager = ProviderManager()
 
 
