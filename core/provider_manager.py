@@ -134,13 +134,23 @@ class GeminiProvider(Provider):
         start = time.time()
         try:
             contents = []
+            system_instruction = None
             for m in messages:
-                role = "user" if m["role"] in ("user", "system") else "model"
-                contents.append({"role": role, "parts": [{"text": m["content"]}]})
+                if m["role"] == "system":
+                    system_instruction = {"parts": [{"text": m["content"]}]}
+                else:
+                    role = "user" if m["role"] == "user" else "model"
+                    contents.append({"role": role, "parts": [{"text": m["content"]}]})
             url = f"{self.base_url}/models/{self.model}:generateContent?key={self.api_key}"
-            payload = {"contents": contents,
-                       "generationConfig": {"temperature": temperature,
-                                            "maxOutputTokens": max_tokens}}
+            payload = {
+                "contents": contents,
+                "generationConfig": {
+                    "temperature": temperature,
+                    "maxOutputTokens": max_tokens
+                }
+            }
+            if system_instruction:
+                payload["systemInstruction"] = system_instruction
             r = self.session.post(url, json=payload, timeout=15)
             if r.status_code == 200:
                 data = r.json()

@@ -118,10 +118,11 @@ def knowledge_page():
 def chat_process():
     data = request.get_json(silent=True) or {}
     message = str(data.get("message", "")).strip()
+    session_id = str(data.get("session_id", "")).strip()
     if not message:
         return jsonify({"reply": "I didn't hear anything."})
     try:
-        result = _orchestrator.run(message)
+        result = _orchestrator.run(message, session_id=session_id)
         response = result.get("response", "")
         agent_used = result.get("agent", "chat")
         metadata = result.get("metadata", {})

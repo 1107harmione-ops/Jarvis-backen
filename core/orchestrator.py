@@ -203,8 +203,20 @@ def _chat_response(query: str, knowledge_context: str = "", session_id: str = ""
     enriched_query = query
     if knowledge_context:
         enriched_query = f"[Knowledge Context]\n{knowledge_context}\n\n[User Query]\n{query}"
+    
+    messages = []
+    if session_id:
+        try:
+            history = _mem.get_session_messages(session_id)
+            for h in history[-15:]:
+                messages.append({"role": h["role"], "content": h["content"]})
+        except Exception:
+            pass
+            
+    messages.append({"role": "user", "content": enriched_query})
+
     response = llm_completion(
-        [{"role": "user", "content": enriched_query}],
+        messages=messages,
         system="You are JARVIS, an advanced AI assistant. Be helpful, concise, and accurate."
     )
     if response.startswith("[All LLM providers"):
