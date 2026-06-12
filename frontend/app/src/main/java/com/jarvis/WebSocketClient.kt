@@ -33,6 +33,7 @@ class WebSocketClient {
     private val maxReconnectAttempts = 20
     private var shouldReconnect = true
     private var status = ConnectionStatus.DISCONNECTED
+    var sessionId: String = "android-${System.currentTimeMillis()}"
     private var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private fun log(msg: String, isError: Boolean = false) {
@@ -353,6 +354,7 @@ class WebSocketClient {
             addProperty("text", text)
             addProperty("intent", intent)
             addProperty("speaker", "user")
+            addProperty("session_id", sessionId)
         }
         val sent = ws?.send(gson.toJson(msg)) == true
         if (sent) {
@@ -379,7 +381,7 @@ class WebSocketClient {
                 .replace("wss://", "https://").replace("ws://", "http://")
                 .removeSuffix("/ws").removeSuffix("/")
             val endpoint = if (url.contains("://")) url else "$url:8000"
-            val body = gson.toJson(mapOf("message" to text, "text" to text, "intent" to intent, "speaker" to "user"))
+            val body = gson.toJson(mapOf("message" to text, "text" to text, "intent" to intent, "speaker" to "user", "session_id" to sessionId))
             val request = Request.Builder()
                 .url("$endpoint/chat")
                 .post(body.toRequestBody(jsonMediaType))

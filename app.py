@@ -121,15 +121,17 @@ def chat_process():
     session_id = str(data.get("session_id", "")).strip()
     if not message:
         return jsonify({"reply": "I didn't hear anything."})
+    logger.info("Chat | session=%s | msg=%s", session_id or "(none)", message[:80])
     try:
         result = _orchestrator.run(message, session_id=session_id)
-        response = result.get("response", "")
+        response = result.get("response", "") or "I processed your request but have no specific response."
         agent_used = result.get("agent", "chat")
         metadata = result.get("metadata", {})
         time_ms = result.get("time_ms", 0)
         logger.info("Chat | agent=%s | time=%dms | msg=%s", agent_used, time_ms, str(message)[:80])
         return jsonify({
             "reply": str(response),
+            "session_id": session_id,
             "agent": agent_used,
             "image_url": metadata.get("image_url"),
             "filepath": metadata.get("filepath"),
@@ -146,6 +148,32 @@ def chat_process():
     except Exception as e:
         logger.error("Chat error: %s", e)
         return jsonify({"error": str(e), "reply": "I encountered a neural link error."})
+
+@app.route("/chat/history", methods=["GET"])
+def chat_history():
+    session_id = request.args.get("session_id", "").strip()
+    limit = min(int(request.args.get("limit", "30")), 100)
+    if not session_id:
+        return jsonify({"error": "session_id required"}), 400
+    try:
+        history = _memory.get_session_history(session_id, limit)
+        return jsonify({"session_id": session_id, "messages": history, "count": len(history)})
+    except Exception as e:
+        logger.error("Chat history error: %s", e)
+        return jsonify({"error": str(e), "messages": []})
+
+@app.route("/chat/clear", methods=["POST"])
+def chat_clear():
+    data = request.get_json(silent=True) or {}
+    session_id = str(data.get("session_id", "")).strip()
+    if not session_id:
+        return jsonify({"error": "session_id required"}), 400
+    try:
+        _memory.clear_session(session_id)
+        return jsonify({"status": "cleared", "session_id": session_id})
+    except Exception as e:
+        logger.error("Chat clear error: %s", e)
+        return jsonify({"error": str(e)})
 
 @app.route("/agent", methods=["POST"])
 def agent_direct():

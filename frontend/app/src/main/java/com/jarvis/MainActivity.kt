@@ -445,6 +445,7 @@ class MainActivity : ComponentActivity() {
 
     fun doVoiceInput() {
         if (isVoiceActive) {
+            // Second tap → stop recording and process whatever was captured
             isVoiceActive = false
             ChatState.isListening = false
             try {
@@ -452,6 +453,9 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 Log.e(TAG, "Stop listening failed", e)
             }
+            // For fallback mode, stopping isVoiceActive signals the capture loop to exit
+            // The job will then proceed to transcribe what it captured
+            Log.d(TAG, "Voice input stopped by user tap")
             return
         }
         if (!ensureAudioPermission()) return
@@ -488,17 +492,29 @@ class MainActivity : ComponentActivity() {
     private fun startFallbackVoiceInput() {
         if (isVoiceActive) return
         if (!ensureAudioPermission()) return
-        if (fallbackVoiceJob?.isActive == true) return
+        if (fallbackVoiceJob?.isActive == true) {
+            // Already recording — stop it so the captured bytes get processed
+            isVoiceActive = false
+            return
+        }
 
         isVoiceActive = true
         ChatState.isListening = true
+        ChatState.addSystemMessage("🎙️ Listening… tap again to send")
         fallbackVoiceJob = lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val pcmBytes = capturePcmAudio(4500L)
-                if (pcmBytes == null || pcmBytes.isEmpty()) {
-                    Log.w(TAG, "Fallback capture returned no audio")
+                // Open-ended recording: runs until user taps again (isVoiceActive=false)
+                // or silence is detected, max 30 s as safety cap
+                val pcmBytes = capturePcmAudio(maxDurationMs = 30_000L)
+                if (pcmBytes == null || pcmBytes.size < 4800) {
+                    // < 0.15 s of 16-kHz 16-bit mono audio → treat as silence
+                    Log.w(TAG, "Fallback capture too short: ${pcmBytes?.size ?: 0} bytes")
+                    withContext(Dispatchers.Main) {
+                        ChatState.addSystemMessage("🔇 No speech detected — tap mic to try again")
+                    }
                     return@launch
                 }
+                Log.d(TAG, "Captured ${pcmBytes.size} PCM bytes — transcribing")
                 val wavBytes = pcmToWav(pcmBytes)
                 val transcript = transcribeAudioBytes(wavBytes)
                 withContext(Dispatchers.Main) {
@@ -509,6 +525,7 @@ class MainActivity : ComponentActivity() {
                 withContext(Dispatchers.Main) {
                     isVoiceActive = false
                     ChatState.isListening = false
+                    ChatState.addSystemMessage("❌ Voice capture error: ${e.message}")
                     if (autoListenEnabled) scheduleNextVoice(1500L)
                 }
             } finally {
@@ -526,20 +543,37 @@ class MainActivity : ComponentActivity() {
         ChatState.isListening = false
         val transcript = rawTranscript.trim()
         if (transcript.isBlank()) {
+            ChatState.addSystemMessage("🔇 Didn't catch that — tap the mic and speak clearly")
             return
         }
         dispatchVoiceCommand(transcript)
     }
 
-    private suspend fun capturePcmAudio(durationMs: Long): ByteArray? = withContext(Dispatchers.IO) {
+    /**
+     * Records PCM audio until:
+     *  - [isVoiceActive] is set to false (user taps stop, or silence detected)
+     *  - silence lasts longer than [silenceThresholdMs]
+     *  - [maxDurationMs] elapsed as a safety cap
+     *
+     * Returns the captured PCM bytes (may be empty if nothing was captured).
+     */
+    private suspend fun capturePcmAudio(
+        maxDurationMs: Long = 30_000L,
+        silenceThresholdMs: Long = 1_500L,
+        silenceAmplitudeThreshold: Int = 400
+    ): ByteArray? = withContext(Dispatchers.IO) {
         val sampleRate = 16000
         val channelConfig = AudioFormat.CHANNEL_IN_MONO
         val audioFormat = AudioFormat.ENCODING_PCM_16BIT
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-        if (minBufferSize <= 0) return@withContext null
+        if (minBufferSize <= 0) {
+            Log.e(TAG, "AudioRecord.getMinBufferSize returned $minBufferSize — mic unavailable")
+            return@withContext null
+        }
 
-        val bufferSize = maxOf(minBufferSize, sampleRate * 2)
-        val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        // Use at least 0.5 s buffer for smooth reading
+        val bufferSize = maxOf(minBufferSize, sampleRate) // 1 s of frames
+        val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             AudioRecord.Builder()
                 .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
                 .setAudioFormat(
@@ -563,23 +597,48 @@ class MainActivity : ComponentActivity() {
         }
 
         if (recorder.state != AudioRecord.STATE_INITIALIZED) {
+            Log.e(TAG, "AudioRecord not initialized — state=${recorder.state}")
             recorder.release()
             return@withContext null
         }
 
         val output = ByteArrayOutputStream()
-        val buffer = ByteArray(bufferSize)
+        // Smaller read chunk for responsiveness (~80 ms)
+        val chunkSize = sampleRate * 2 * 80 / 1000  // 2 bytes/sample, 80 ms
+        val buffer = ShortArray(chunkSize / 2)
+        var lastSoundAt = SystemClock.elapsedRealtime()
+        val deadline = SystemClock.elapsedRealtime() + maxDurationMs
+
         try {
             recorder.startRecording()
-            val deadline = SystemClock.elapsedRealtime() + durationMs
-            while (SystemClock.elapsedRealtime() < deadline && isVoiceActive) {
-                val read = recorder.read(buffer, 0, buffer.size)
-                if (read > 0) {
-                    output.write(buffer, 0, read)
-                } else if (read == AudioRecord.ERROR_INVALID_OPERATION || read == AudioRecord.ERROR_BAD_VALUE) {
+            Log.d(TAG, "AudioRecord started recording")
+
+            while (isActive && isVoiceActive && SystemClock.elapsedRealtime() < deadline) {
+                val samplesRead = recorder.read(buffer, 0, buffer.size)
+                if (samplesRead > 0) {
+                    // Convert shorts → bytes (little-endian PCM 16)
+                    for (i in 0 until samplesRead) {
+                        val s = buffer[i]
+                        output.write(s.toInt() and 0xFF)
+                        output.write(s.toInt() shr 8 and 0xFF)
+                    }
+                    // Silence detection — check max amplitude in this chunk
+                    val maxAmplitude = (0 until samplesRead).maxOfOrNull { kotlin.math.abs(buffer[it].toInt()) } ?: 0
+                    if (maxAmplitude > silenceAmplitudeThreshold) {
+                        lastSoundAt = SystemClock.elapsedRealtime()
+                    } else if (output.size() > sampleRate * 2 &&  // at least 0.5 s recorded
+                               SystemClock.elapsedRealtime() - lastSoundAt > silenceThresholdMs) {
+                        Log.d(TAG, "Silence detected (${silenceThresholdMs}ms) — stopping capture")
+                        withContext(Dispatchers.Main) { isVoiceActive = false }
+                        break
+                    }
+                } else if (samplesRead == AudioRecord.ERROR_INVALID_OPERATION ||
+                           samplesRead == AudioRecord.ERROR_BAD_VALUE) {
+                    Log.e(TAG, "AudioRecord read error: $samplesRead")
                     break
                 }
             }
+            Log.d(TAG, "Capture loop exited — ${output.size()} bytes collected")
             output.toByteArray()
         } finally {
             try { recorder.stop() } catch (_: Exception) {}
@@ -841,6 +900,24 @@ fun ChatScreen() {
                 // ═══════════════════════════════════════════════════
                 // CHAT MODE — scrollable message list + text input
                 // ═══════════════════════════════════════════════════
+
+                // Chat header
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "${ChatState.messages.size} messages",
+                        color = CrystalColors.dimText,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    TextButton(onClick = { ChatState.clearMessages() }) {
+                        Text("Clear", color = CrystalColors.redGlow.copy(alpha = 0.7f), fontSize = 12.sp)
+                    }
+                }
+
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     state = listState,
@@ -880,14 +957,28 @@ fun ChatScreen() {
                             singleLine = true,
                             shape = RoundedCornerShape(24.dp),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = CrystalColors.cyan,
-                                unfocusedBorderColor = CrystalColors.dimText,
+                                focusedBorderColor = CrystalColors.cyan.copy(alpha = 0.5f),
+                                unfocusedBorderColor = Color.Transparent,
                                 cursorColor = CrystalColors.cyan,
                                 focusedTextColor = CrystalColors.textPrimary,
                                 unfocusedTextColor = CrystalColors.textPrimary,
+                                focusedContainerColor = CrystalColors.surface,
+                                unfocusedContainerColor = CrystalColors.surface,
                             )
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(4.dp))
+                        FilledIconButton(
+                            onClick = { activity?.doVoiceInput() },
+                            modifier = Modifier.size(44.dp),
+                            shape = RoundedCornerShape(22.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = if (isListening) CrystalColors.redGlow.copy(alpha = 0.3f)
+                                    else CrystalColors.cyan.copy(alpha = 0.2f)
+                            )
+                        ) {
+                            Text(if (isListening) "⏹" else "🎤", fontSize = 18.sp)
+                        }
+                        Spacer(Modifier.width(4.dp))
                         FilledIconButton(
                             onClick = {
                                 val t = inputText.trim()
@@ -1116,16 +1207,26 @@ fun ChatBubble(msg: ChatMessage) {
     val isSystem = msg.isSystem
     val isError = msg.isError
     val bubbleColor = when {
-        isError -> MaterialTheme.colorScheme.errorContainer
-        isSystem -> MaterialTheme.colorScheme.secondaryContainer
-        isUser -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.surfaceVariant
+        isError -> Color(0xFF2A0808)
+        isSystem -> Color(0xFF121212)
+        isUser -> Color(0xFF2A1508)
+        else -> Color(0xFF081A1E)
     }
     val textColor = when {
-        isError -> MaterialTheme.colorScheme.onErrorContainer
-        isSystem -> MaterialTheme.colorScheme.onSecondaryContainer
-        isUser -> MaterialTheme.colorScheme.onPrimary
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+        isError -> Color(0xFFFF6B4A)
+        isSystem -> CrystalColors.dimText
+        isUser -> CrystalColors.warmWhite
+        else -> Color(0xFFB0E0E6)
+    }
+    val labelText = when {
+        isError -> null
+        isSystem -> null
+        isUser -> "YOU"
+        else -> "JARVIS"
+    }
+    val labelColor = when {
+        isUser -> CrystalColors.flameOrange.copy(alpha = 0.6f)
+        else -> CrystalColors.cyan.copy(alpha = 0.6f)
     }
     val timeStr = remember(msg.timestamp) {
         val now = System.currentTimeMillis()
@@ -1137,23 +1238,38 @@ fun ChatBubble(msg: ChatMessage) {
             else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(msg.timestamp))
         }
     }
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
-        Surface(
-            shape = RoundedCornerShape(
-                topStart = 16.dp, topEnd = 16.dp,
-                bottomStart = if (isUser) 16.dp else 4.dp,
-                bottomEnd = if (isUser) 4.dp else 16.dp
-            ),
-            color = bubbleColor,
-            shadowElevation = 1.dp
+        if (labelText != null) {
+            Text(
+                text = labelText,
+                color = labelColor,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 1.5.sp,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(0.85f),
+            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
         ) {
-            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                Text(msg.text, color = textColor, fontSize = 15.sp, textAlign = TextAlign.Start)
-                Text(timeStr, color = textColor.copy(alpha = 0.5f), fontSize = 10.sp,
-                    modifier = Modifier.padding(top = 2.dp))
+            Surface(
+                shape = RoundedCornerShape(
+                    topStart = 16.dp, topEnd = 16.dp,
+                    bottomStart = if (isUser) 16.dp else 4.dp,
+                    bottomEnd = if (isUser) 4.dp else 16.dp
+                ),
+                color = bubbleColor,
+                shadowElevation = 1.dp
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    Text(msg.text, color = textColor, fontSize = 15.sp, textAlign = TextAlign.Start)
+                    Text(timeStr, color = textColor.copy(alpha = 0.4f), fontSize = 10.sp,
+                        modifier = Modifier.padding(top = 2.dp))
+                }
             }
         }
     }

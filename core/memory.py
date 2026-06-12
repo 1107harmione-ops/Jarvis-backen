@@ -187,5 +187,29 @@ class Memory:
             cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
             conn.commit()
 
+    def get_session_history(self, session_id, limit=30):
+        """Return the last N messages for a given session in chronological order."""
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT role, content, timestamp FROM chat_history "
+                "WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+                (session_id, limit)
+            )
+            rows = cursor.fetchall()
+            return [{"role": r[0], "content": r[1], "timestamp": r[2]} for r in reversed(rows)]
+
+    def clear_session(self, session_id):
+        """Clear all messages for a session but keep the session record."""
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM chat_history WHERE session_id = ?", (session_id,))
+            cursor.execute(
+                "UPDATE sessions SET message_count = 0, last_preview = '', "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (session_id,)
+            )
+            conn.commit()
+
     def get(self, limit=20):
         return self.get_recent_chat(limit)
