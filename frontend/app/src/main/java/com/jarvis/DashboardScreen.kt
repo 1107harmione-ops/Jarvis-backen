@@ -107,7 +107,7 @@ fun DashboardScreen() {
             }
 
             Spacer(Modifier.height(16.dp))
-            Text("JARVIS v1.0.0 • Fully Offline",
+            Text("JARVIS v${info.version.ifEmpty { "3.0" }} • Cloud Hosted",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)

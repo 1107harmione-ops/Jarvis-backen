@@ -32,9 +32,12 @@ from core.auto_skill import SkillLibrary
 from core.memory import Memory
 
 _orchestrator = Orchestrator()
-_memory = Memory()
-_kb = DataCenter()
-_skills = SkillLibrary()
+# Reuse the singleton instances from the orchestrator module to avoid
+# duplicate Memory / DataCenter / SkillLibrary objects (and their DB handles).
+from core import orchestrator as _orc_mod
+_memory = _orc_mod._mem
+_kb = _orc_mod._datacenter
+_skills = _orc_mod._skill_lib
 _training_knowledge, _training_sources = load_training_data()
 
 # ── V3 Module Imports ──
@@ -79,12 +82,15 @@ ALLOWED_ORIGINS = [
 @app.after_request
 def add_cors(resp):
     origin = request.headers.get("Origin", "")
-    if origin in ALLOWED_ORIGINS:
+    if any(origin.startswith(o) for o in ALLOWED_ORIGINS):
         resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     else:
+        # Wildcard for the Android app (no Origin header) and Render; no credentials.
         resp.headers["Access-Control-Allow-Origin"] = "*"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, DELETE"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return resp
 
 
@@ -152,7 +158,7 @@ def chat_process():
 @app.route("/chat/history", methods=["GET"])
 def chat_history():
     session_id = request.args.get("session_id", "").strip()
-    limit = min(int(request.args.get("limit", "30")), 100)
+    limit = min(request.args.get("limit", 30, type=int), 100)
     if not session_id:
         return jsonify({"error": "session_id required"}), 400
     try:
@@ -500,7 +506,8 @@ def voice_chat():
 
     # Step 2: Process through orchestrator
     try:
-        result = _orchestrator.run(transcript.strip())
+        session_id = request.form.get("session_id", "").strip()
+        result = _orchestrator.run(transcript.strip(), session_id=session_id)
         reply = result.get("response", "")
         agent_used = result.get("agent", "chat")
         metadata = result.get("metadata", {})
@@ -854,6 +861,72 @@ def v3_memory_recall():
         return jsonify({"results": results, "count": len(results)})
     except Exception as e:
         return jsonify({"error": str(e)})
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Android App REST endpoints (Dashboard, Memory, Skills)
+# ═══════════════════════════════════════════════════════════════════
+
+@app.route("/api/dashboard", methods=["GET"])
+def api_dashboard():
+    import platform, psutil
+    try:
+        cpu = psutil.cpu_percent(interval=0.1)
+    except Exception:
+        cpu = 0.0
+    try:
+        mem = psutil.virtual_memory()
+        memory_info = {"used": mem.used, "total": mem.total}
+    except Exception:
+        memory_info = {"used": 0, "total": 0}
+
+    personalization = {"percentage": 0.0, "level": "basic"}
+    try:
+        facts = _memory.get_facts()
+        fact_count = len(facts) if facts else 0
+        pct = min(fact_count * 5.0, 100.0)
+        level = "basic" if pct < 30 else ("intermediate" if pct < 70 else "advanced")
+        personalization = {"percentage": pct, "level": level}
+    except Exception:
+        pass
+
+    return jsonify({
+        "version": "3.0",
+        "battery": "N/A (server)",
+        "cpu": cpu,
+        "memory": memory_info,
+        "personalization": personalization,
+        "permissions": {},
+        "risk_summary": {}
+    })
+
+
+@app.route("/api/memory", methods=["GET"])
+def api_memory():
+    action = request.args.get("action", "history")
+    limit = request.args.get("limit", 20, type=int)
+    query = request.args.get("query", "").strip()
+    try:
+        if action == "search" and query:
+            results = _memory.search_facts(query)
+            # search_facts returns a dict; convert to list of dicts for JSON
+            data = [{"key": k, "value": v} for k, v in results.items()]
+        else:
+            data = _memory.get_recent_chat(limit)
+        return jsonify({"data_type": "memory", "data": data})
+    except Exception as e:
+        logger.error("Memory API error: %s", e)
+        return jsonify({"data_type": "memory", "data": [], "error": str(e)})
+
+
+@app.route("/api/skills", methods=["GET"])
+def api_skills():
+    try:
+        skills_list = _skills.get_all()
+        return jsonify({"data_type": "skills", "data": skills_list})
+    except Exception as e:
+        logger.error("Skills API error: %s", e)
+        return jsonify({"data_type": "skills", "data": [], "error": str(e)})
 
 
 # ═══════════════════════════════════════════════════════════════════

@@ -261,7 +261,7 @@ class Orchestrator:
             parameters.setdefault("knowledge_context", "")
             parameters["knowledge_context"] += f"\n\n--- RELEVANT AUTO-SKILLS ---\n{skills_text}\n--- END SKILLS ---"
         if knowledge_context:
-            parameters["knowledge_context"] = knowledge_context
+            parameters["knowledge_context"] = knowledge_context + "\n" + parameters.get("knowledge_context", "")
 
         logger.info("[Orchestrator] '%s' -> agent=%s", query[:60], primary)
 

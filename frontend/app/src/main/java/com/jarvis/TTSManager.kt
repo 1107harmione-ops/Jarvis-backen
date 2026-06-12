@@ -16,7 +16,7 @@ class TTSManager(
 
     private var tts: TextToSpeech? = null
     private var ready = false
-    private val pendingTexts = mutableListOf<String>()
+    private val pendingTexts = java.util.Collections.synchronizedList(mutableListOf<String>())
 
     init {
         tts = TextToSpeech(context, this)
@@ -25,12 +25,18 @@ class TTSManager(
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             ready = true
-            tts?.language = Locale.US
+            val result = tts?.isLanguageAvailable(Locale.US) ?: TextToSpeech.LANG_NOT_SUPPORTED
+            if (result >= TextToSpeech.LANG_AVAILABLE) {
+                tts?.language = Locale.US
+            } else {
+                Log.w(TAG, "Locale.US not available (result=$result), using default")
+            }
             // Flush any texts that were queued before init completed
-            val queued = pendingTexts.toList()
-            pendingTexts.clear()
-            queued.forEach { speakNow(it) }
-            Log.d(TAG, "TTS engine ready — flushed ${queued.size} queued")
+            synchronized(pendingTexts) {
+                pendingTexts.forEach { tts?.speak(it, TextToSpeech.QUEUE_ADD, null, "jarvis_${System.nanoTime()}") }
+                pendingTexts.clear()
+            }
+            Log.d(TAG, "TTS engine ready — flushed pending queue")
         } else {
             Log.w(TAG, "TTS engine init failed: $status")
         }
@@ -49,15 +55,15 @@ class TTSManager(
         Log.d(TAG, "TTS speak: $text")
         tts?.speak(
             text,
-            TextToSpeech.QUEUE_FLUSH,
+            TextToSpeech.QUEUE_ADD,
             null,
-            "jarvis_response"
+            "jarvis_${System.nanoTime()}"
         )
     }
 
     fun shutdown() {
         ready = false
-        pendingTexts.clear()
+        synchronized(pendingTexts) { pendingTexts.clear() }
         tts?.stop()
         tts?.shutdown()
         tts = null
